@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="26/10/2026 11:00";
+const VERSAO="26/10/2026 11:05";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];

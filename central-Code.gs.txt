@@ -1,0 +1,199 @@
+/**
+ * Diário de Obra ECTAS - Base central
+ * Recebe os RDOs do app de campo, guarda numa planilha (uma linha por RDO)
+ * e as fotos numa pasta do Google Drive organizada por obra.
+ * O Painel do Supervisor lê os dados daqui, protegido por senha.
+ *
+ * A senha do painel é cadastrada pelo próprio supervisor no primeiro acesso.
+ * A planilha "Diário de Obra ECTAS - Base" é criada no Drive na primeira execução.
+ */
+const CHAVE_CAMPO = "ectas-rdo-campo-2026";
+const NOME_PLANILHA = "Diário de Obra ECTAS - Base";
+
+const ABA = "RDOs";
+const PASTA_RAIZ = "Diário de Obra ECTAS - Fotos";
+const COLUNAS = [
+  "uid", "recebido_em", "idobra", "obra", "local", "data", "rdo", "resp",
+  "hini", "hfim", "clima_manha", "clima_tarde",
+  "lider", "montador", "auxiliar", "outros", "total",
+  "ativ", "equip", "mat", "ocor", "obs",
+  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular"
+];
+const TITULOS = [
+  "Código interno", "Recebido em", "ID", "Obra", "Local", "Data", "Nº RDO", "Responsável",
+  "Início", "Fim", "Tempo manhã", "Tempo tarde",
+  "Líder", "Montador", "Auxiliar", "Outros", "Total efetivo",
+  "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
+  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em"
+];
+
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+
+function planilha_() {
+  const pr = PropertiesService.getScriptProperties();
+  const id = pr.getProperty("PLANILHA_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { } }
+  const ss = SpreadsheetApp.create(NOME_PLANILHA);
+  pr.setProperty("PLANILHA_ID", ss.getId());
+  return ss;
+}
+
+function aba_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA);
+  if (!sh) {
+    sh = ss.insertSheet(ABA);
+    const p1 = ss.getSheetByName("Página1") || ss.getSheetByName("Sheet1") || ss.getSheetByName("Planilha1");
+    if (p1 && ss.getSheets().length > 1) ss.deleteSheet(p1);
+    sh.getRange(1, 1, 1, TITULOS.length).setValues([TITULOS])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    sh.setFrozenRows(1);
+    sh.getRange("A:A").setNumberFormat("@");
+    sh.hideColumns(1);
+    sh.hideColumns(24);
+    sh.setColumnWidths(18, 5, 320);
+  }
+  return sh;
+}
+
+function pasta_(nome, mae) {
+  const it = (mae ? mae.getFoldersByName(nome) : DriveApp.getFoldersByName(nome));
+  return it.hasNext() ? it.next() : (mae ? mae.createFolder(nome) : DriveApp.createFolder(nome));
+}
+
+function linhaDoUid_(sh, uid) {
+  const n = sh.getLastRow();
+  if (n < 2) return 0;
+  const ids = sh.getRange(2, 1, n - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) if (String(ids[i][0]) === uid) return i + 2;
+  return 0;
+}
+
+function lerLinha_(sh, linha) {
+  const v = sh.getRange(linha, 1, 1, COLUNAS.length).getValues()[0];
+  const o = {};
+  COLUNAS.forEach((c, i) => o[c] = v[i]);
+  return o;
+}
+
+function limpa_(s, max) { return String(s == null ? "" : s).slice(0, max || 5000); }
+
+/* ---------- App de campo envia ---------- */
+function doPost(e) {
+  let body;
+  try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (!body || body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}));
+    if (body.acao === "foto") return json_(salvarFoto_(body));
+    if (body.acao === "fim") return json_(fecharFotos_(body));
+    return json_({ ok: false, erro: "ação desconhecida" });
+  } finally { lock.releaseLock(); }
+}
+
+function salvarRdo_(r) {
+  const uid = limpa_(r.uid, 80);
+  if (!uid) return { ok: false, erro: "sem uid" };
+  const sh = aba_();
+  let linha = linhaDoUid_(sh, uid);
+  const antigo = linha ? lerLinha_(sh, linha) : null;
+  const n = k => parseInt(r[k], 10) || 0;
+  const reg = {
+    uid: uid, recebido_em: new Date(),
+    idobra: limpa_(r.idobra, 40), obra: limpa_(r.obra, 120), local: limpa_(r.local, 120),
+    data: limpa_(r.data, 10), rdo: limpa_(r.rdo, 10), resp: limpa_(r.resp, 120),
+    hini: limpa_(r.hini, 5), hfim: limpa_(r.hfim, 5),
+    clima_manha: limpa_(r.clima_manha, 40), clima_tarde: limpa_(r.clima_tarde, 40),
+    lider: n("m_lid"), montador: n("m_mon"), auxiliar: n("m_aux"), outros: n("m_out"),
+    total: n("m_lid") + n("m_mon") + n("m_aux") + n("m_out"),
+    ativ: limpa_(r.ativ), equip: limpa_(r.equip), mat: limpa_(r.mat), ocor: limpa_(r.ocor), obs: limpa_(r.obs),
+    n_fotos: parseInt(r.n_fotos, 10) || 0,
+    fotos: antigo ? antigo.fotos : "[]",
+    pasta_fotos: antigo ? antigo.pasta_fotos : "",
+    salvo_no_celular: limpa_(r.salvoEm, 40)
+  };
+  const valores = [COLUNAS.map(c => reg[c])];
+  if (linha) sh.getRange(linha, 1, 1, COLUNAS.length).setValues(valores);
+  else { sh.appendRow(valores[0]); linha = sh.getLastRow(); }
+  sh.getRange(linha, 6).setNumberFormat("@");
+  return { ok: true, uid: uid, novo: !antigo };
+}
+
+function salvarFoto_(b) {
+  const sh = aba_();
+  const linha = linhaDoUid_(sh, limpa_(b.uid, 80));
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const raiz = pasta_(PASTA_RAIZ);
+  const pastaObra = pasta_([r.idobra, r.obra].filter(String).join(" - ") || "Sem obra", raiz);
+  const nome = "RDO " + r.rdo + " " + r.data + " foto " + (b.idx + 1) + ".jpg";
+  const blob = Utilities.newBlob(Utilities.base64Decode(b.b64), "image/jpeg", nome);
+  const arq = pastaObra.createFile(blob).setDescription(limpa_(b.desc, 500));
+  // lista provisória da rodada atual de envio
+  const chave = "envio_" + r.uid;
+  const cache = CacheService.getScriptCache();
+  const lista = JSON.parse(cache.get(chave) || "[]");
+  lista[b.idx] = { id: arq.getId(), desc: limpa_(b.desc, 500) };
+  cache.put(chave, JSON.stringify(lista), 21600);
+  sh.getRange(linha, COLUNAS.indexOf("pasta_fotos") + 1).setValue(pastaObra.getUrl());
+  return { ok: true, id: arq.getId() };
+}
+
+function fecharFotos_(b) {
+  // troca as fotos antigas pelas da rodada atual
+  const sh = aba_();
+  const uid = limpa_(b.uid, 80);
+  const linha = linhaDoUid_(sh, uid);
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const cache = CacheService.getScriptCache();
+  const novas = JSON.parse(cache.get("envio_" + uid) || "[]").filter(Boolean);
+  let antigas = [];
+  try { antigas = JSON.parse(r.fotos || "[]"); } catch (e) { }
+  const manter = new Set(novas.map(f => f.id));
+  antigas.forEach(f => { if (f && f.id && !manter.has(f.id)) { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) { } } });
+  sh.getRange(linha, COLUNAS.indexOf("fotos") + 1).setValue(JSON.stringify(novas));
+  sh.getRange(linha, COLUNAS.indexOf("n_fotos") + 1).setValue(novas.length);
+  cache.remove("envio_" + uid);
+  return { ok: true, fotos: novas.length };
+}
+
+/* ---------- Painel do Supervisor lê ---------- */
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  if (p.acao === "ping") return json_({ ok: true, app: "Diário de Obra ECTAS" });
+  const senhaAtual = prop_("SENHA_SUPERVISOR");
+  if (!senhaAtual) {
+    if (p.acao === "definirSenha" && String(p.nova || "").length >= 6) {
+      PropertiesService.getScriptProperties().setProperty("SENHA_SUPERVISOR", String(p.nova));
+      return json_({ ok: true });
+    }
+    return json_({ ok: false, erro: "sem senha" });
+  }
+  if (p.senha !== senhaAtual) return json_({ ok: false, erro: "senha incorreta" });
+  if (p.acao === "listar") {
+    const sh = aba_();
+    const n = sh.getLastRow();
+    const dados = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues().map(v => {
+      const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i] instanceof Date ? v[i].toISOString() : v[i]); return o;
+    });
+    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl() });
+  }
+  if (p.acao === "foto") {
+    try {
+      const f = DriveApp.getFileById(p.id);
+      return json_({ ok: true, b64: Utilities.base64Encode(f.getBlob().getBytes()), tipo: f.getMimeType() });
+    } catch (err) { return json_({ ok: false, erro: "foto não encontrada" }); }
+  }
+  return json_({ ok: false, erro: "ação desconhecida" });
+}
+
+/* Rode uma vez pelo editor para criar a aba e autorizar o acesso ao Drive. */
+function configurar() {
+  aba_();
+  pasta_(PASTA_RAIZ);
+  Logger.log("Planilha: " + planilha_().getUrl());
+}
