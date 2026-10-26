@@ -15,7 +15,24 @@ function iso(d){const z=new Date(d);z.setMinutes(z.getMinutes()-z.getTimezoneOff
 const hoje=()=>iso(new Date());
 const semIcone=t=>String(t||"").replace(/^[^\p{L}]+/u,"");
 const ruim=t=>/chuva|impratic/i.test(t||"");
-function obraNome(r){return [r.idobra,r.obra].filter(Boolean).join(" - ")+(r.local?" / "+r.local:"");}
+const norm=s=>String(s==null?"":s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().replace(/\s+/g," ").toUpperCase();
+// a obra é identificada pelo ID; sem ID, pelo nome sem diferença de maiúsculas, acentos e espaços
+function obraChave(r){const id=norm(r.idobra);return id?"ID:"+id:"NOME:"+norm(r.obra);}
+let canon={};
+function montarCanon(lista){
+  // para cada obra, usa o nome e o local mais usados (em empate, o mais recente)
+  const g={};
+  lista.slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).forEach(r=>{
+    const k=obraChave(r),x=g[k]=g[k]||{id:"",nomes:{},locais:{}};
+    if(String(r.idobra||"").trim())x.id=String(r.idobra).trim();
+    const conta=(m,v)=>{v=String(v||"").trim().replace(/\s+/g," ");if(!v)return;const n=norm(v);const e=m[n]=m[n]||{c:0,grafias:{}};e.c++;e.grafias[v]=(e.grafias[v]||0)+1;};
+    conta(x.nomes,r.obra);conta(x.locais,r.local);
+  });
+  // grafia mais usada; no empate, a do primeiro cadastro
+  const top=m=>{let b=null;Object.values(m).forEach(v=>{if(!b||v.c>b.c)b=v;});if(!b)return"";let t="",c=0;Object.entries(b.grafias).forEach(([g,n])=>{if(n>c){t=g;c=n;}});return t;};
+  canon={};Object.entries(g).forEach(([k,x])=>canon[k]={idobra:x.id,obra:top(x.nomes),local:top(x.locais)});
+}
+function obraNome(r){const c=canon[obraChave(r)]||r;return [c.idobra,c.obra].filter(Boolean).join(" - ")+(c.local?" / "+c.local:"");}
 function cor(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
 function msg(id,t,err){const m=$(id);m.textContent=t;m.className="msg"+(err?" err":"");}
 
@@ -50,6 +67,7 @@ $("b-sair").onclick=()=>{try{sessionStorage.removeItem("sup-senha");}catch(e){}s
 async function carregar(){
   const j=await chamar({acao:"listar"});
   todos=(j.rdos||[]).map(r=>({...r,data:dataStr(r.data),total:num(r.total)})).filter(r=>r.data);
+  montarCanon(todos);
   planilha=j.planilha||"";
   if(planilha){$("link-planilha").href=planilha;$("link-planilha").hidden=false;}
   $("atualizado").textContent="Atualizado às "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "+todos.length+" RDOs na central";
@@ -60,7 +78,9 @@ $("b-atualizar").onclick=async()=>{try{msg("msg","Atualizando…");await carrega
 /* ---------- filtros ---------- */
 function montarFiltros(){
   const sel=(id,vals,primeira)=>{const s=$(id),cur=s.value;s.innerHTML=`<option value="">${primeira}</option>`+vals.map(v=>`<option${v===cur?" selected":""}>${esc(v)}</option>`).join("");};
-  sel("f-obra",[...new Set(todos.map(obraNome))].sort((a,b)=>a.localeCompare(b,"pt")),"Todas as obras");
+  const so=$("f-obra"),cur=so.value;
+  const obras=[...new Set(todos.map(obraChave))].map(k=>[k,obraNome(canon[k]||{})]).sort((a,b)=>a[1].localeCompare(b[1],"pt"));
+  so.innerHTML='<option value="">Todas as obras</option>'+obras.map(([k,n])=>`<option value="${esc(k)}"${k===cur?" selected":""}>${esc(n)}</option>`).join("");
   sel("f-resp",[...new Set(todos.map(r=>r.resp).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")),"Todos");
   if(!$("f-de").value){const d=new Date();d.setDate(1);$("f-de").value=iso(d);}
   if(!$("f-ate").value)$("f-ate").value=hoje();
@@ -68,7 +88,7 @@ function montarFiltros(){
 ["f-obra","f-resp","f-de","f-ate"].forEach(id=>$(id).addEventListener("change",render));
 function filtrados(){
   const o=$("f-obra").value,p=$("f-resp").value,de=$("f-de").value,ate=$("f-ate").value;
-  return todos.filter(r=>(!o||obraNome(r)===o)&&(!p||r.resp===p)&&(!de||r.data>=de)&&(!ate||r.data<=ate))
+  return todos.filter(r=>(!o||obraChave(r)===o)&&(!p||r.resp===p)&&(!de||r.data>=de)&&(!ate||r.data<=ate))
     .sort((a,b)=>b.data.localeCompare(a.data)||num(b.rdo)-num(a.rdo));
 }
 
@@ -76,7 +96,7 @@ function filtrados(){
 function render(){
   const L=filtrados();
   // indicadores
-  const obras=new Set(L.map(obraNome));
+  const obras=new Set(L.map(obraChave));
   const hd=L.reduce((s,r)=>s+r.total,0);
   const diasRuins=L.filter(r=>ruim(r.clima_manha)||ruim(r.clima_tarde)).length;
   const ocor=L.filter(r=>String(r.ocor||"").trim()).length;
@@ -94,7 +114,7 @@ function renderFaltas(L){
   const ontem=(()=>{const d=new Date();d.setDate(d.getDate()-1);return iso(d);})();
   const de=$("f-de").value,ate=[$("f-ate").value||ontem,ontem].sort()[0];
   const porObra={};
-  L.forEach(r=>{(porObra[obraNome(r)]=porObra[obraNome(r)]||new Set()).add(r.data);});
+  L.forEach(r=>{const k=obraChave(r);(porObra[k]=porObra[k]||new Set()).add(r.data);});
   // considera também obras com RDO antes do período, para não esquecer obra parada
   const linhas=[];
   Object.entries(porObra).forEach(([o,datas])=>{
@@ -105,7 +125,7 @@ function renderFaltas(L){
       if(d.getDay()===0)continue;
       const s=iso(d);if(!datas.has(s))faltam.push(s);
     }
-    if(faltam.length)linhas.push(`<div><b>${esc(o)}</b> <span class="status">${faltam.length} dia${faltam.length>1?"s":""}:</span> ${faltam.slice(-12).map(s=>`<span class="d">${fmt(s).slice(0,5)}</span>`).join(" ")}${faltam.length>12?" <span class='status'>…</span>":""}</div>`);
+    if(faltam.length)linhas.push(`<div><b>${esc(obraNome(canon[o]||{}))}</b> <span class="status">${faltam.length} dia${faltam.length>1?"s":""}:</span> ${faltam.slice(-12).map(s=>`<span class="d">${fmt(s).slice(0,5)}</span>`).join(" ")}${faltam.length>12?" <span class='status'>…</span>":""}</div>`);
   });
   $("c-faltas").hidden=!linhas.length;
   $("faltas").innerHTML=linhas.join("");
@@ -152,9 +172,9 @@ function renderGrafico(L){
 
 function renderObras(L){
   const g={};
-  L.forEach(r=>{const o=obraNome(r),x=g[o]=g[o]||{n:0,ult:"",hd:0,ruim:0,oc:0};x.n++;x.hd+=r.total;if(r.data>x.ult)x.ult=r.data;if(ruim(r.clima_manha)||ruim(r.clima_tarde))x.ruim++;if(String(r.ocor||"").trim())x.oc++;});
-  const linhas=Object.entries(g).sort((a,b)=>a[0].localeCompare(b[0],"pt"));
-  $("t-obras").innerHTML=linhas.length?linhas.map(([o,x])=>`<tr data-o="${esc(o)}"><td>${esc(o)}</td><td class="n">${x.n}</td><td>${fmt(x.ult)}</td><td class="n">${x.hd}</td><td class="n">${(x.hd/x.n).toFixed(1).replace(".",",")}</td><td class="n">${x.ruim}</td><td class="n">${x.oc}</td></tr>`).join(""):'<tr><td colspan="7" class="status">Nenhum RDO no período.</td></tr>';
+  L.forEach(r=>{const o=obraChave(r),x=g[o]=g[o]||{n:0,ult:"",hd:0,ruim:0,oc:0};x.n++;x.hd+=r.total;if(r.data>x.ult)x.ult=r.data;if(ruim(r.clima_manha)||ruim(r.clima_tarde))x.ruim++;if(String(r.ocor||"").trim())x.oc++;});
+  const linhas=Object.entries(g).sort((a,b)=>obraNome(canon[a[0]]||{}).localeCompare(obraNome(canon[b[0]]||{}),"pt"));
+  $("t-obras").innerHTML=linhas.length?linhas.map(([o,x])=>`<tr data-o="${esc(o)}"><td>${esc(obraNome(canon[o]||{}))}</td><td class="n">${x.n}</td><td>${fmt(x.ult)}</td><td class="n">${x.hd}</td><td class="n">${(x.hd/x.n).toFixed(1).replace(".",",")}</td><td class="n">${x.ruim}</td><td class="n">${x.oc}</td></tr>`).join(""):'<tr><td colspan="7" class="status">Nenhum RDO no período.</td></tr>';
   $("t-obras").querySelectorAll("tr[data-o]").forEach(tr=>tr.onclick=()=>{$("f-obra").value=tr.dataset.o;render();});
 }
 
@@ -202,7 +222,7 @@ $("b-excel").onclick=async()=>{
   if(!L.length){msg("msg","Nenhum RDO para exportar.",true);return;}
   try{
     await carregarXlsx();
-    const rows=L.map(r=>({"Data":fmt(r.data),"ID":r.idobra,"Obra":r.obra,"Local":r.local,"Nº RDO":num(r.rdo)||r.rdo,"Responsável":r.resp,"Início":r.hini,"Fim":r.hfim,
+    const rows=L.map(r=>({"Data":fmt(r.data),"ID":(canon[obraChave(r)]||r).idobra,"Obra":(canon[obraChave(r)]||r).obra,"Local":(canon[obraChave(r)]||r).local,"Obra como digitada":[r.obra,r.local].filter(Boolean).join(" / "),"Nº RDO":num(r.rdo)||r.rdo,"Responsável":r.resp,"Início":r.hini,"Fim":r.hfim,
       "Tempo manhã":semIcone(r.clima_manha),"Tempo tarde":semIcone(r.clima_tarde),"Líder":num(r.lider),"Montador":num(r.montador),"Auxiliar":num(r.auxiliar),"Outros":num(r.outros),"Total efetivo":r.total,
       "Atividades executadas":r.ativ,"Equipamentos":r.equip,"Materiais recebidos":r.mat,"Ocorrências":r.ocor,"Observações":r.obs,"Nº de fotos":num(r.n_fotos),"Pasta das fotos":r.pasta_fotos}));
     const ws=XLSX.utils.json_to_sheet(rows);

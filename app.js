@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="26/10/2026 11:05";
+const VERSAO="26/10/2026 12:00";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -32,7 +32,7 @@ const dbPut=r=>tx("registros","readwrite",s=>{s.put(r);});
 const dbDel=id=>tx("registros","readwrite",s=>{s.delete(id);});
 const draftGet=()=>tx("rascunho","readonly",s=>s.get("atual"));
 const draftPut=d=>tx("rascunho","readwrite",s=>{s.put(d,"atual");});
-async function carregar(){try{registros=await dbAll()||[];}catch(e){registros=[];}render();}
+async function carregar(){try{registros=await dbAll()||[];}catch(e){registros=[];}montarCanon(registros);render();}
 
 /* ---------- utilidades ---------- */
 function hoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
@@ -45,8 +45,24 @@ function nomeArq(base,ext){return (base.normalize("NFD").replace(/[̀-ͯ]/g,"").
 function msg(t,err){const m=$("msg");m.textContent=t;m.className="msg"+(err?" err":"");}
 function msgExp(t,err){const m=$("msg-exp");m.textContent=t;m.className="msg"+(err?" err":"");}
 function pfMsg(t,err){const m=$("pf-msg");m.textContent=t;m.className="msg"+(err?" err":"");}
-function obraNome(r){return [r.idobra,r.obra].filter(Boolean).join(" - ")+(r.local?" / "+r.local:"");}
-function obraChave(r){return ((r.idobra||"")+"|"+(r.obra||"")).toLowerCase().trim();}
+const norm=s=>String(s==null?"":s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().replace(/\s+/g," ").toUpperCase();
+// a obra é identificada pelo ID; sem ID, pelo nome sem diferença de maiúsculas, acentos e espaços
+function obraChave(r){const id=norm(r.idobra);return id?"ID:"+id:"NOME:"+norm(r.obra);}
+let canon={};
+function montarCanon(lista){
+  // para cada obra, usa o nome e o local mais usados (em empate, o mais recente)
+  const g={};
+  lista.slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).forEach(r=>{
+    const k=obraChave(r),x=g[k]=g[k]||{id:"",nomes:{},locais:{}};
+    if(String(r.idobra||"").trim())x.id=String(r.idobra).trim();
+    const conta=(m,v)=>{v=String(v||"").trim().replace(/\s+/g," ");if(!v)return;const n=norm(v);const e=m[n]=m[n]||{c:0,grafias:{}};e.c++;e.grafias[v]=(e.grafias[v]||0)+1;};
+    conta(x.nomes,r.obra);conta(x.locais,r.local);
+  });
+  // grafia mais usada; no empate, a do primeiro cadastro
+  const top=m=>{let b=null;Object.values(m).forEach(v=>{if(!b||v.c>b.c)b=v;});if(!b)return"";let t="",c=0;Object.entries(b.grafias).forEach(([g,n])=>{if(n>c){t=g;c=n;}});return t;};
+  canon={};Object.entries(g).forEach(([k,x])=>canon[k]={idobra:x.id,obra:top(x.nomes),local:top(x.locais)});
+}
+function obraNome(r){const c=canon[obraChave(r)]||r;return [c.idobra,c.obra].filter(Boolean).join(" - ")+(c.local?" / "+c.local:"");}
 function proxRdo(ref){const k=obraChave(ref);const n=registros.filter(r=>obraChave(r)===k&&r._id!==editId).map(r=>parseInt(r.rdo)||0);return n.length?Math.max(...n)+1:1;}
 function abrirWa(t){location.href="https://wa.me/?text="+encodeURIComponent(t);}
 function baixarArquivo(blob,nome){const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);}
@@ -92,8 +108,9 @@ function limpar(){
 $("f").addEventListener("input",update);
 $("idobra").addEventListener("change",()=>{
   const id=$("idobra").value.trim();if(!id)return;
-  const ult=registros.filter(r=>(r.idobra||"")===id).sort((a,b)=>(b.salvoEm||"").localeCompare(a.salvoEm||""))[0];
-  if(ult){if(!$("obra").value.trim())$("obra").value=ult.obra||"";if(!$("local").value.trim())$("local").value=ult.local||"";update();}
+  const c=canon["ID:"+norm(id)];
+  // mesmo ID = mesma obra: usa o nome e o local já cadastrados
+  if(c){$("idobra").value=c.idobra||id;if(c.obra)$("obra").value=c.obra;if(c.local)$("local").value=c.local;update();msg("Obra encontrada pelo ID: "+obraNome({idobra:id})+".");}
 });
 $("f").addEventListener("submit",e=>e.preventDefault());
 
@@ -468,7 +485,7 @@ function tab(h){$("t-novo").setAttribute("aria-selected",String(!h));$("t-hist")
 $("t-novo").onclick=()=>tab(false);$("t-hist").onclick=()=>tab(true);
 function filtrados(asc){
   const o=$("fobra").value;
-  return registros.filter(r=>!o||obraNome(r)===o).sort((a,b)=>{const d=(a.data||"").localeCompare(b.data||"")||(parseInt(a.rdo)||0)-(parseInt(b.rdo)||0);return asc?d:-d;});
+  return registros.filter(r=>!o||obraChave(r)===o).sort((a,b)=>{const d=(a.data||"").localeCompare(b.data||"")||(parseInt(a.rdo)||0)-(parseInt(b.rdo)||0);return asc?d:-d;});
 }
 let thumbUrls=[];
 function render(){
@@ -479,9 +496,9 @@ function render(){
   $("ids").innerHTML=uniq("idobra").map(o=>`<option value="${esc(o)}">`).join("");
   $("obras").innerHTML=uniq("obra").map(o=>`<option value="${esc(o)}">`).join("");
   $("locais").innerHTML=uniq("local").map(o=>`<option value="${esc(o)}">`).join("");
-  const obras=[...new Set(registros.map(obraNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt"));
+  const obras=[...new Set(registros.map(obraChave))].map(k=>[k,obraNome(canon[k]||{})]).sort((a,b)=>a[1].localeCompare(b[1],"pt"));
   const sel=$("fobra"),cur=sel.value;
-  sel.innerHTML='<option value="">Todas as obras</option>'+obras.map(o=>`<option${o===cur?" selected":""}>${esc(o)}</option>`).join("");
+  sel.innerHTML='<option value="">Todas as obras</option>'+obras.map(([k,n])=>`<option value="${esc(k)}"${k===cur?" selected":""}>${esc(n)}</option>`).join("");
   $("hist-n").textContent=registros.length?"("+registros.length+")":"";
   thumbUrls.forEach(u=>URL.revokeObjectURL(u));thumbUrls=[];
   const lst=filtrados(false);

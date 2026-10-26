@@ -62,6 +62,20 @@ function pasta_(nome, mae) {
   return it.hasNext() ? it.next() : (mae ? mae.createFolder(nome) : DriveApp.createFolder(nome));
 }
 
+function norm_(s) { return String(s == null ? "" : s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toUpperCase(); }
+
+// Mesma obra = mesmo ID (sem diferença de maiúsculas, acentos e espaços); sem ID, pelo nome.
+function pastaDaObra_(r, raiz) {
+  const id = norm_(r.idobra), nome = norm_(r.obra);
+  const it = raiz.getFolders();
+  while (it.hasNext()) {
+    const f = it.next(), n = norm_(f.getName());
+    if (id ? (n === id || n.indexOf(id + " - ") === 0) : n === nome) return f;
+  }
+  const titulo = [String(r.idobra || "").trim(), String(r.obra || "").trim()].filter(String).join(" - ") || "Sem obra";
+  return raiz.createFolder(titulo);
+}
+
 function linhaDoUid_(sh, uid) {
   const n = sh.getLastRow();
   if (n < 2) return 0;
@@ -128,7 +142,7 @@ function salvarFoto_(b) {
   if (!linha) return { ok: false, erro: "RDO não encontrado" };
   const r = lerLinha_(sh, linha);
   const raiz = pasta_(PASTA_RAIZ);
-  const pastaObra = pasta_([r.idobra, r.obra].filter(String).join(" - ") || "Sem obra", raiz);
+  const pastaObra = pastaDaObra_(r, raiz);
   const nome = "RDO " + r.rdo + " " + r.data + " foto " + (b.idx + 1) + ".jpg";
   const blob = Utilities.newBlob(Utilities.base64Decode(b.b64), "image/jpeg", nome);
   const arq = pastaObra.createFile(blob).setDescription(limpa_(b.desc, 500));
