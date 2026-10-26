@@ -54,7 +54,7 @@ function montarCanon(lista){
   const g={};
   lista.slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).forEach(r=>{
     const k=obraChave(r),x=g[k]=g[k]||{id:"",nomes:{},locais:{}};
-    if(String(r.idobra||"").trim())x.id=String(r.idobra).trim();
+    if(String(r.idobra??"").trim())x.id=String(r.idobra).trim();
     const conta=(m,v)=>{v=String(v||"").trim().replace(/\s+/g," ");if(!v)return;const n=norm(v);const e=m[n]=m[n]||{c:0,grafias:{}};e.c++;e.grafias[v]=(e.grafias[v]||0)+1;};
     conta(x.nomes,r.obra);conta(x.locais,r.local);
   });

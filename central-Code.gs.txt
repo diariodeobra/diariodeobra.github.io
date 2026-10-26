@@ -54,6 +54,12 @@ function aba_() {
     sh.hideColumns(24);
     sh.setColumnWidths(18, 5, 320);
   }
+  // ID, data e nº do RDO como texto (mantém zeros à esquerda, ex.: 0123)
+  const pr = PropertiesService.getScriptProperties();
+  if (pr.getProperty("FORMATO_TEXTO") !== "2") {
+    ["C:C", "F:F", "G:G"].forEach(c => sh.getRange(c).setNumberFormat("@"));
+    pr.setProperty("FORMATO_TEXTO", "2");
+  }
   return sh;
 }
 

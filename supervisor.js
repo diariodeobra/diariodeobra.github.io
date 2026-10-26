@@ -24,7 +24,7 @@ function montarCanon(lista){
   const g={};
   lista.slice().sort((a,b)=>String(a.data||"").localeCompare(String(b.data||""))).forEach(r=>{
     const k=obraChave(r),x=g[k]=g[k]||{id:"",nomes:{},locais:{}};
-    if(String(r.idobra||"").trim())x.id=String(r.idobra).trim();
+    if(String(r.idobra??"").trim())x.id=String(r.idobra).trim();
     const conta=(m,v)=>{v=String(v||"").trim().replace(/\s+/g," ");if(!v)return;const n=norm(v);const e=m[n]=m[n]||{c:0,grafias:{}};e.c++;e.grafias[v]=(e.grafias[v]||0)+1;};
     conta(x.nomes,r.obra);conta(x.locais,r.local);
   });
@@ -32,7 +32,7 @@ function montarCanon(lista){
   const top=m=>{let b=null;Object.values(m).forEach(v=>{if(!b||v.c>b.c)b=v;});if(!b)return"";let t="",c=0;Object.entries(b.grafias).forEach(([g,n])=>{if(n>c){t=g;c=n;}});return t;};
   canon={};Object.entries(g).forEach(([k,x])=>canon[k]={idobra:x.id,obra:top(x.nomes),local:top(x.locais)});
 }
-function obraNome(r){const c=canon[obraChave(r)]||r;return [c.idobra,c.obra].filter(Boolean).join(" - ")+(c.local?" / "+c.local:"");}
+function obraNome(r){const c=canon[obraChave(r)]||r;return [c.idobra,c.obra].map(v=>String(v??"").trim()).filter(Boolean).join(" - ")+(c.local?" / "+c.local:"");}
 function cor(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
 function msg(id,t,err){const m=$(id);m.textContent=t;m.className="msg"+(err?" err":"");}
 
