@@ -32,7 +32,13 @@ async function entrar(){
   if(!senha){msg("msg-login","Digite a senha.",true);return;}
   msg("msg-login","Entrando…");
   try{
-    await carregar();
+    try{await carregar();}
+    catch(e){
+      if(e.message!=="sem senha")throw e;
+      if(senha.length<6){msg("msg-login","Primeiro acesso: crie uma senha com pelo menos 6 caracteres.",true);return;}
+      await chamar({acao:"definirSenha",nova:senha});
+      await carregar();
+    }
     try{sessionStorage.setItem("sup-senha",senha);}catch(e){}
     $("v-login").hidden=true;$("v-painel").hidden=false;msg("msg-login","");
   }catch(e){msg("msg-login",e.message==="senha incorreta"?"Senha incorreta.":"Não consegui abrir: "+e.message,true);}
