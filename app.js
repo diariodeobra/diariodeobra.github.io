@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="23/10/2026 16:20";
+const VERSAO="26/10/2026 11:00";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -144,11 +144,44 @@ async function salvar(){
   const r=lerForm();
   if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}
   const id=editId||("rdo-"+Date.now());
-  const reg={...r,_id:id,salvoEm:new Date().toISOString()};
+  const reg={...r,_id:id,salvoEm:new Date().toISOString(),central:"pendente"};
   await dbPut(reg);
   await carregar();
+  sincronizar();
   return reg;
 }
+
+/* ---------- central do supervisor ---------- */
+const CENTRAL=window.CENTRAL||{};
+const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
+let sincronizando=false;
+async function postCentral(o){
+  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...o,chave:CENTRAL.chave})});
+  const res=await r.json();if(!res.ok)throw new Error(res.erro||"falha no envio");return res;
+}
+async function enviarCentral(r){
+  const fs=(r.fotos||[]).filter(f=>f&&f.blob);
+  const {fotos,...dados}=r;
+  await postCentral({acao:"salvar",rdo:{...dados,uid:r._id,n_fotos:fs.length}});
+  for(let i=0;i<fs.length;i++){
+    const b64=(await blobToData(fs[i].blob)).split(",")[1];
+    await postCentral({acao:"foto",uid:r._id,idx:i,desc:fs[i].desc||"",b64});
+  }
+  await postCentral({acao:"fim",uid:r._id});
+}
+async function sincronizar(){
+  if(!temCentral()||sincronizando||!navigator.onLine)return;
+  sincronizando=true;let erro="";
+  try{
+    for(const r of registros.filter(x=>x.central!=="ok")){
+      try{await enviarCentral(r);r.central="ok";r.centralEm=new Date().toISOString();await dbPut(r);}
+      catch(e){erro=String(e&&e.message||e);break;}
+    }
+  }finally{sincronizando=false;ultimoErroCentral=erro;render();}
+}
+let ultimoErroCentral="";
+window.addEventListener("online",sincronizar);
+setInterval(()=>{if(document.visibilityState==="visible")sincronizar();},60000);
 
 /* ---------- texto da mensagem ---------- */
 function textoCompleto(r){
@@ -439,6 +472,9 @@ function filtrados(asc){
 }
 let thumbUrls=[];
 function render(){
+  const pend=temCentral()?registros.filter(r=>r.central!=="ok").length:0;
+  const st=$("sync-st");
+  if(st){st.hidden=!pend;st.querySelector("span").textContent=pend+" RDO"+(pend>1?"s":"")+" aguardando envio à central do supervisor"+(ultimoErroCentral?" (último erro: "+ultimoErroCentral+")":navigator.onLine?"":" (sem internet)")+".";}
   const uniq=k=>[...new Set(registros.map(r=>r[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"pt"));
   $("ids").innerHTML=uniq("idobra").map(o=>`<option value="${esc(o)}">`).join("");
   $("obras").innerHTML=uniq("obra").map(o=>`<option value="${esc(o)}">`).join("");
@@ -455,6 +491,7 @@ function render(){
     const th=fs.map((f,i)=>{const u=URL.createObjectURL(f.blob);thumbUrls.push(u);return `<figure><img src="${u}" alt="Foto ${i+1}" loading="lazy"><figcaption>${esc(f.desc||"Foto "+(i+1))}</figcaption></figure>`;}).join("");
     return `<article class="entry">
       <div class="top"><h3>${esc(obraNome(r))}</h3><span class="rdo">RDO ${esc(r.rdo||"-")}</span></div>
+      ${temCentral()?(r.central==="ok"?'<div><span class="pill ok">✓ Na central do supervisor</span></div>':'<div><span class="pill">⏳ Aguardando envio à central</span></div>'):""}
       <div class="meta">${esc(fmtData(r.data))} · ${esc(r.resp)} · <span class="num">${total(r)}</span> pessoas</div>
       ${r.ocor?'<div><span class="pill alert">Ocorrência</span></div>':""}
       <div class="body">${esc((r.ativ||"").split("\n")[0])}${(r.ativ||"").includes("\n")?" …":""}</div>
@@ -545,5 +582,7 @@ $("versao").textContent="Versão "+VERSAO;
   if(!$("data").value)$("data").value=hoje();
   paintClima();renderFotos();$("mtot").textContent=total(lerForm());
   await carregar();
+  sincronizar();
 })();
+$("b-sync").onclick=()=>sincronizar();
 })();

@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <header class="band">
@@ -146,6 +146,7 @@
     </ol>
     <p class="status">Os registros ficam guardados neste celular e funcionam sem internet. O PDF enviado no grupo é a cópia da equipe.</p>
     <p class="status" id="versao"></p>
+    <p class="status"><a href="supervisor.html">Painel do supervisor</a></p>
   </div>
 </div>
 
@@ -158,6 +159,7 @@
     <button type="button" class="btn pri" id="b-pdfs">PDF de todos</button>
   </div>
   <div class="msg" id="msg-exp" role="status"></div>
+  <div class="notice instalar" id="sync-st" hidden><span></span><button type="button" class="btn pri" id="b-sync">Enviar agora</button></div>
   <div class="list" id="lista">
     <div class="empty">Nenhum RDO salvo neste celular ainda. Preencha a aba <b>Novo registro</b>; os diários aparecem aqui, do mais recente para o mais antigo.</div>
   </div>
@@ -165,6 +167,7 @@
 </main>
 
 <script src="lib/jspdf.umd.min.js"></script>
-<script src="app.js?v=7"></script>
+<script src="config.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
