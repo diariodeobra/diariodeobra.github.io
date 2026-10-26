@@ -200,9 +200,22 @@ function abrir(r){
     ${bloco("Atividades executadas",r.ativ)}${bloco("Equipamentos",r.equip)}${bloco("Materiais recebidos",r.mat)}
     ${bloco("Ocorrências",r.ocor)}${bloco("Observações",r.obs)}
     ${fotos.length?`<div class="det"><div><span>Fotos (${fotos.length})</span></div></div><div class="galeria">${fotos.map((f,i)=>`<figure><div class="ph" data-id="${esc(f.id)}">Carregando…</div><figcaption><b>Foto ${i+1}:</b> ${esc(f.desc||"sem legenda")}</figcaption></figure>`).join("")}</div>`:""}
-    ${r.pasta_fotos?`<a href="${esc(r.pasta_fotos)}" target="_blank" rel="noopener" class="status">Abrir pasta de fotos da obra no Google Drive</a>`:""}`;
+    <div class="topo">${r.pdf?`<button type="button" class="btn pri" id="m-pdf">⬇ Baixar PDF do RDO</button>`:`<span class="status">O PDF deste RDO ainda não chegou à central.</span>`}
+    ${r.pasta_fotos?`<a href="${esc(r.pasta_fotos)}" target="_blank" rel="noopener" class="status">Abrir pasta da obra no Google Drive</a>`:""}</div>
+    <div class="msg" id="m-msg" role="status"></div>`;
   $("modal").hidden=false;
   $("m-fechar").onclick=fechar;
+  if(r.pdf)$("m-pdf").onclick=async()=>{
+    const b=$("m-pdf");b.disabled=true;msg("m-msg","Baixando o PDF…");
+    try{
+      const j=await chamar({acao:"foto",id:r.pdf});
+      const bytes=Uint8Array.from(atob(j.b64),c=>c.charCodeAt(0));
+      const u=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
+      const a=document.createElement("a");a.href=u;a.download="RDO_"+(r.rdo||"")+"_"+(r.idobra||"")+"_"+(r.data||"")+".pdf";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);
+      msg("m-msg","PDF baixado.");
+    }catch(e){msg("m-msg","Não consegui baixar o PDF: "+e.message,true);}
+    finally{b.disabled=false;}
+  };
   $("modal-box").querySelectorAll(".ph[data-id]").forEach(async ph=>{
     try{const j=await chamar({acao:"foto",id:ph.dataset.id});ph.innerHTML=`<img alt="" src="data:${j.tipo||"image/jpeg"};base64,${j.b64}">`;}
     catch(e){ph.textContent="Foto indisponível";}
@@ -224,7 +237,7 @@ $("b-excel").onclick=async()=>{
     await carregarXlsx();
     const rows=L.map(r=>({"Data":fmt(r.data),"ID":(canon[obraChave(r)]||r).idobra,"Obra":(canon[obraChave(r)]||r).obra,"Local":(canon[obraChave(r)]||r).local,"Obra como digitada":[r.obra,r.local].filter(Boolean).join(" / "),"Nº RDO":num(r.rdo)||r.rdo,"Responsável":r.resp,"Início":r.hini,"Fim":r.hfim,
       "Tempo manhã":semIcone(r.clima_manha),"Tempo tarde":semIcone(r.clima_tarde),"Líder":num(r.lider),"Montador":num(r.montador),"Auxiliar":num(r.auxiliar),"Outros":num(r.outros),"Total efetivo":r.total,
-      "Atividades executadas":r.ativ,"Equipamentos":r.equip,"Materiais recebidos":r.mat,"Ocorrências":r.ocor,"Observações":r.obs,"Nº de fotos":num(r.n_fotos),"Pasta das fotos":r.pasta_fotos}));
+      "Atividades executadas":r.ativ,"Equipamentos":r.equip,"Materiais recebidos":r.mat,"Ocorrências":r.ocor,"Observações":r.obs,"Nº de fotos":num(r.n_fotos),"PDF na central":r.pdf?"Sim":"Não","Pasta da obra":r.pasta_fotos}));
     const ws=XLSX.utils.json_to_sheet(rows);
     ws["!cols"]=Object.keys(rows[0]).map(k=>({wch:/Atividades|Ocorr|Equip|Materiais|Observ|Pasta/.test(k)?45:k==="Obra"?24:12}));
     ws["!autofilter"]={ref:ws["!ref"]};

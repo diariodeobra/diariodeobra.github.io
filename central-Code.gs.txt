@@ -17,14 +17,14 @@ const COLUNAS = [
   "hini", "hfim", "clima_manha", "clima_tarde",
   "lider", "montador", "auxiliar", "outros", "total",
   "ativ", "equip", "mat", "ocor", "obs",
-  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular"
+  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf"
 ];
 const TITULOS = [
   "Código interno", "Recebido em", "ID", "Obra", "Local", "Data", "Nº RDO", "Responsável",
   "Início", "Fim", "Tempo manhã", "Tempo tarde",
   "Líder", "Montador", "Auxiliar", "Outros", "Total efetivo",
   "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
-  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em"
+  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO"
 ];
 
 function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
@@ -53,6 +53,11 @@ function aba_() {
     sh.hideColumns(1);
     sh.hideColumns(24);
     sh.setColumnWidths(18, 5, 320);
+  }
+  // garante o cabeçalho de colunas novas em planilhas já existentes
+  if (sh.getRange(1, TITULOS.length).getValue() === "") {
+    sh.getRange(1, 1, 1, TITULOS.length).setValues([TITULOS])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
   }
   // ID, data e nº do RDO como texto (mantém zeros à esquerda, ex.: 0123)
   const pr = PropertiesService.getScriptProperties();
@@ -110,6 +115,7 @@ function doPost(e) {
     if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}));
     if (body.acao === "foto") return json_(salvarFoto_(body));
     if (body.acao === "fim") return json_(fecharFotos_(body));
+    if (body.acao === "pdf") return json_(salvarPdf_(body));
     return json_({ ok: false, erro: "ação desconhecida" });
   } finally { lock.releaseLock(); }
 }
@@ -133,7 +139,8 @@ function salvarRdo_(r) {
     n_fotos: parseInt(r.n_fotos, 10) || 0,
     fotos: antigo ? antigo.fotos : "[]",
     pasta_fotos: antigo ? antigo.pasta_fotos : "",
-    salvo_no_celular: limpa_(r.salvoEm, 40)
+    salvo_no_celular: limpa_(r.salvoEm, 40),
+    pdf: antigo ? antigo.pdf : ""
   };
   const valores = [COLUNAS.map(c => reg[c])];
   if (linha) sh.getRange(linha, 1, 1, COLUNAS.length).setValues(valores);
@@ -179,6 +186,22 @@ function fecharFotos_(b) {
   sh.getRange(linha, COLUNAS.indexOf("n_fotos") + 1).setValue(novas.length);
   cache.remove("envio_" + uid);
   return { ok: true, fotos: novas.length };
+}
+
+// PDF do RDO na mesma pasta da obra, substituindo a versão anterior
+function salvarPdf_(b) {
+  const sh = aba_();
+  const linha = linhaDoUid_(sh, limpa_(b.uid, 80));
+  if (!linha) return { ok: false, erro: "RDO não encontrado" };
+  const r = lerLinha_(sh, linha);
+  const pastaObra = pastaDaObra_(r, pasta_(PASTA_RAIZ));
+  const obra = [String(r.idobra || "").trim(), String(r.obra || "").trim()].filter(String).join(" ");
+  const nome = "RDO " + r.rdo + " - " + r.data + " - " + obra + ".pdf";
+  const arq = pastaObra.createFile(Utilities.newBlob(Utilities.base64Decode(b.b64), "application/pdf", nome));
+  if (r.pdf && r.pdf !== arq.getId()) { try { DriveApp.getFileById(r.pdf).setTrashed(true); } catch (e) { } }
+  sh.getRange(linha, COLUNAS.indexOf("pdf") + 1).setValue(arq.getId());
+  sh.getRange(linha, COLUNAS.indexOf("pasta_fotos") + 1).setValue(pastaObra.getUrl());
+  return { ok: true, id: arq.getId() };
 }
 
 /* ---------- Painel do Supervisor lê ---------- */

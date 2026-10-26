@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="26/10/2026 12:00";
+const VERSAO="26/10/2026 12:15";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -161,7 +161,7 @@ async function salvar(){
   const r=lerForm();
   if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}
   const id=editId||("rdo-"+Date.now());
-  const reg={...r,_id:id,salvoEm:new Date().toISOString(),central:"pendente"};
+  const reg={...r,_id:id,salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente"};
   await dbPut(reg);
   await carregar();
   sincronizar();
@@ -185,13 +185,24 @@ async function enviarCentral(r){
     await postCentral({acao:"foto",uid:r._id,idx:i,desc:fs[i].desc||"",b64});
   }
   await postCentral({acao:"fim",uid:r._id});
+  await enviarPdfCentral(r);
+}
+// PDF do RDO guardado na pasta da obra, junto das fotos
+async function enviarPdfCentral(r){
+  const b64=(await blobToData(await gerarPdf([r]))).split(",")[1];
+  await postCentral({acao:"pdf",uid:r._id,b64});
 }
 async function sincronizar(){
   if(!temCentral()||sincronizando||!navigator.onLine)return;
   sincronizando=true;let erro="";
   try{
     for(const r of registros.filter(x=>x.central!=="ok")){
-      try{await enviarCentral(r);r.central="ok";r.centralEm=new Date().toISOString();await dbPut(r);}
+      try{await enviarCentral(r);r.central="ok";r.centralPdf="ok";r.centralEm=new Date().toISOString();await dbPut(r);}
+      catch(e){erro=String(e&&e.message||e);break;}
+    }
+    // RDOs enviados antes desta versão: completa só o PDF
+    if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.centralPdf!=="ok")){
+      try{await enviarPdfCentral(r);r.centralPdf="ok";await dbPut(r);}
       catch(e){erro=String(e&&e.message||e);break;}
     }
   }finally{sincronizando=false;ultimoErroCentral=erro;render();}
