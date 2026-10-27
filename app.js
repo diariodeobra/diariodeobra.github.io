@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="26/10/2026 12:15";
+const VERSAO="27/10/2026 20:30";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -94,6 +94,7 @@ function update(){
 }
 function validar(){
   const falta=[];
+  if(listaObras.length&&!$("selobra").value){msg("Escolha a obra na lista.",true);$("selobra").focus();return false;}
   if(!$("obra").value.trim())falta.push("obra");
   if(!$("data").value)falta.push("data");
   if(!$("resp").value.trim())falta.push("responsável");
@@ -166,6 +167,45 @@ async function salvar(){
   await carregar();
   sincronizar();
   return reg;
+}
+
+/* ---------- lista fixa de obras (cadastrada pelo supervisor) ---------- */
+let listaObras=[];
+function lerListaLocal(){try{return JSON.parse(localStorage.getItem("obras-lista")||"[]");}catch(e){return [];}}
+function aplicarListaObras(lista){
+  listaObras=(lista||[]).filter(o=>o&&o.id&&o.obra);
+  const usar=listaObras.length>0;
+  $("lbl-selobra").hidden=!usar;$("ident-manual").hidden=usar;
+  const sel=$("selobra"),atual=$("idobra").value.trim();
+  sel.innerHTML='<option value="">Escolha a obra…</option>'+listaObras.map(o=>`<option value="${esc(o.id)}">${esc(o.id+" - "+o.obra+(o.local?" / "+o.local:""))}</option>`).join("");
+  sincronizarSelecao(atual);
+}
+// marca na lista a obra que está no formulário (rascunho ou RDO em edição)
+function sincronizarSelecao(id){
+  const sel=$("selobra");if(!listaObras.length)return;
+  const o=listaObras.find(x=>norm(x.id)===norm(id));
+  if(o){sel.value=o.id;}
+  else if(String(id||"").trim()){
+    // RDO antigo de obra que saiu da lista: mantém como estava
+    const op=document.createElement("option");op.value=id;op.textContent=[id,$("obra").value].filter(Boolean).join(" - ")+" (fora da lista)";sel.appendChild(op);sel.value=id;
+  }else sel.value="";
+  mostrarObraInfo();
+}
+function mostrarObraInfo(){const i=$("obra-info");i.hidden=!$("selobra").value;i.textContent=$("selobra").value?"ID "+$("idobra").value+" · "+$("obra").value+($("local").value?" · "+$("local").value:""):"";}
+$("selobra").addEventListener("change",()=>{
+  const o=listaObras.find(x=>x.id===$("selobra").value);
+  if(o){$("idobra").value=o.id;$("obra").value=o.obra;$("local").value=o.local||"";}
+  else if(!$("selobra").value){$("idobra").value="";$("obra").value="";$("local").value="";}
+  mostrarObraInfo();update();
+});
+async function carregarListaObras(){
+  aplicarListaObras(lerListaLocal());
+  if(!(window.CENTRAL&&CENTRAL.url&&CENTRAL.chave)||!navigator.onLine)return;
+  try{
+    const r=await fetch(CENTRAL.url+"?acao=obras&chave="+encodeURIComponent(CENTRAL.chave));
+    const res=await r.json();
+    if(res.ok&&Array.isArray(res.obras)){try{localStorage.setItem("obras-lista",JSON.stringify(res.obras));}catch(e){}aplicarListaObras(res.obras);}
+  }catch(e){}
 }
 
 /* ---------- central do supervisor ---------- */
@@ -542,7 +582,7 @@ $("lista").addEventListener("click",async e=>{
     catch(err){msgExp("Não consegui gerar o arquivo ("+(err&&err.message||err)+").",true);}
     finally{b.disabled=false;b.textContent=lbl;}
   }
-  if(b.dataset.a==="ed"){preencher(r);editId=r._id;update();tab(false);window.scrollTo(0,0);msg("Editando o RDO "+(r.rdo||"")+". Salve para gravar as mudanças.");}
+  if(b.dataset.a==="ed"){preencher(r);editId=r._id;sincronizarSelecao(r.idobra);update();tab(false);window.scrollTo(0,0);msg("Editando o RDO "+(r.rdo||"")+". Salve para gravar as mudanças.");}
   if(b.dataset.a==="del"){
     if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Confirmar exclusão";b.style.color="var(--danger)";return;}
     await dbDel(r._id);await carregar();
@@ -610,7 +650,9 @@ $("versao").textContent="Versão "+VERSAO;
   if(!$("data").value)$("data").value=hoje();
   paintClima();renderFotos();$("mtot").textContent=total(lerForm());
   await carregar();
+  carregarListaObras();
   sincronizar();
 })();
+window.addEventListener("online",carregarListaObras);
 $("b-sync").onclick=()=>sincronizar();
 })();

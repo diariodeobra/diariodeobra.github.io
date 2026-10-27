@@ -44,6 +44,11 @@ async function chamar(params){
   if(!j.ok)throw new Error(j.erro||"falha");
   return j;
 }
+async function enviar(corpo){
+  if(!CENTRAL.url)throw new Error("A central ainda não foi configurada.");
+  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...corpo,senha})});
+  const j=await r.json();if(!j.ok)throw new Error(j.erro||"falha");return j;
+}
 async function entrar(){
   senha=$("senha").value;
   if(!senha){msg("msg-login","Digite a senha.",true);return;}
@@ -72,7 +77,59 @@ async function carregar(){
   if(planilha){$("link-planilha").href=planilha;$("link-planilha").hidden=false;}
   $("atualizado").textContent="Atualizado às "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "+todos.length+" RDOs na central";
   montarFiltros();render();
+  carregarObras();carregarAviso();
 }
+
+/* ---------- cadastro de obras ---------- */
+let cadObras=[],editandoId=null;
+async function carregarObras(){
+  try{const j=await chamar({acao:"obrasTodas"});cadObras=j.obras||[];renderObras2();}
+  catch(e){msg("msg-obras","Não consegui carregar as obras: "+e.message,true);}
+}
+function renderObras2(){
+  const at=cadObras.filter(o=>o.ativa).length;
+  $("n-obras").textContent="("+at+" ativa"+(at!==1?"s":"")+(cadObras.length>at?", "+(cadObras.length-at)+" inativa"+(cadObras.length-at>1?"s":""):"")+")";
+  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td><button type="button" class="linkbtn" data-ed="${i}">Editar</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
+  $("t-cad-obras").querySelectorAll("[data-ed]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirObra(cadObras[+b.dataset.ed]);});
+}
+function abrirObra(o){
+  editandoId=o?o.id:null;
+  $("o-id").value=o?o.id:"";$("o-nome").value=o?o.obra:"";$("o-local").value=o?o.local:"";$("o-ativa").value=!o||o.ativa?"1":"0";
+  $("f-obra-form").hidden=false;$("b-obra-salvar").textContent=o?"Salvar alterações":"Cadastrar obra";msg("msg-obras","");$("o-id").focus();
+}
+$("b-nova-obra").onclick=()=>abrirObra(null);
+$("b-obra-cancelar").onclick=()=>{$("f-obra-form").hidden=true;editandoId=null;msg("msg-obras","");};
+$("f-obra-form").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const obra={id:$("o-id").value.trim(),obra:$("o-nome").value.trim(),local:$("o-local").value.trim(),ativa:$("o-ativa").value==="1",idOriginal:editandoId||""};
+  if(!obra.id||!obra.obra){msg("msg-obras","Informe o ID e o nome da obra.",true);return;}
+  const b=$("b-obra-salvar");b.disabled=true;msg("msg-obras","Salvando…");
+  try{const j=await enviar({acao:"obraSalvar",obra});cadObras=j.obras||[];renderObras2();$("f-obra-form").hidden=true;editandoId=null;msg("msg-obras","Obra "+obra.id+" salva. Os celulares recebem a lista nova ao abrir o app.");}
+  catch(err){msg("msg-obras",err.message,true);}
+  finally{b.disabled=false;}
+});
+
+/* ---------- aviso diário por e-mail ---------- */
+(function(){const s=$("a-hora");for(let h=5;h<=12;h++)s.insertAdjacentHTML("beforeend",`<option value="${h}">${String(h).padStart(2,"0")}:00</option>`);s.value="7";})();
+function mostrarAviso(c){
+  $("a-emails").value=c.emails||"";$("a-hora").value=String(c.hora||7);
+  $("aviso-status").innerHTML=c.ativo&&c.emails?`<span class="pill ok">✓ Ativo</span> todo dia às ${String(c.hora).padStart(2,"0")}:00 para ${esc(c.emails)}`:'<span class="pill">Desligado</span> cadastre pelo menos um e-mail e salve.';
+}
+async function carregarAviso(){
+  try{const j=await chamar({acao:"config"});mostrarAviso(j.config||{});}
+  catch(e){msg("msg-aviso","Não consegui carregar o aviso: "+e.message,true);}
+}
+$("f-aviso").addEventListener("submit",async e=>{
+  e.preventDefault();msg("msg-aviso","Salvando…");
+  try{const j=await enviar({acao:"configSalvar",config:{emails:$("a-emails").value,hora:$("a-hora").value}});mostrarAviso(j.config||{});msg("msg-aviso","Aviso salvo.");}
+  catch(err){msg("msg-aviso","Não consegui salvar: "+err.message,true);}
+});
+$("b-aviso-teste").onclick=async()=>{
+  const b=$("b-aviso-teste");b.disabled=true;msg("msg-aviso","Enviando…");
+  try{const j=await enviar({acao:"emailTeste"});msg("msg-aviso","E-mail de teste enviado para "+j.enviado+". "+(j.faltam?j.faltam+" obra(s) sem RDO ontem.":"Todas as obras ativas enviaram ontem."));}
+  catch(err){msg("msg-aviso","Não consegui enviar: "+err.message,true);}
+  finally{b.disabled=false;}
+};
 $("b-atualizar").onclick=async()=>{try{msg("msg","Atualizando…");await carregar();msg("msg","");}catch(e){msg("msg","Não consegui atualizar: "+e.message,true);}};
 
 /* ---------- filtros ---------- */

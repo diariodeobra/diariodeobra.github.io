@@ -124,6 +124,34 @@ tbody tr:hover{background:var(--chip)}
       <div class="tabela"><table><thead><tr><th>Data</th><th>Obra</th><th class="n">RDO</th><th>Responsável</th><th class="n">Efetivo</th><th>Tempo</th><th class="n">Fotos</th><th>Ocorrência</th></tr></thead><tbody id="t-rdos"></tbody></table></div>
       <div class="msg" id="msg" role="status"></div>
     </section>
+
+    <section class="card" id="c-obras">
+      <div class="topo"><h2>Obras cadastradas <span id="n-obras"></span></h2><button type="button" class="btn pri" id="b-nova-obra">+ Nova obra</button></div>
+      <p class="status" style="text-align:left;margin:0">Os encarregados escolhem a obra nesta lista. Obras inativas somem do app, mas o histórico continua no painel.</p>
+      <form class="filtros" id="f-obra-form" hidden autocomplete="off">
+        <label style="flex:0 1 120px">ID<input id="o-id" class="num" required></label>
+        <label>Obra<input id="o-nome" required></label>
+        <label>Local<input id="o-local"></label>
+        <label style="flex:0 1 120px">Situação<select id="o-ativa"><option value="1">Ativa</option><option value="0">Inativa</option></select></label>
+        <button type="submit" class="btn pri" id="b-obra-salvar">Salvar obra</button>
+        <button type="button" class="btn sec" id="b-obra-cancelar">Cancelar</button>
+      </form>
+      <div class="msg" id="msg-obras" role="status"></div>
+      <div class="tabela"><table><thead><tr><th>ID</th><th>Obra</th><th>Local</th><th>Situação</th><th></th></tr></thead><tbody id="t-cad-obras"></tbody></table></div>
+    </section>
+
+    <section class="card" id="c-aviso">
+      <h2>Aviso diário por e-mail</h2>
+      <p class="status" style="text-align:left;margin:0">Todo dia, de segunda a sábado, a central envia um e-mail com as obras ativas que não mandaram o RDO do dia anterior.</p>
+      <form class="filtros" id="f-aviso" autocomplete="off">
+        <label style="flex:3 1 260px">E-mails (separe por vírgula)<input id="a-emails" type="text" inputmode="email" placeholder="supervisor@ectas.com.br"></label>
+        <label style="flex:0 1 140px">Horário<select id="a-hora"></select></label>
+        <button type="submit" class="btn pri">Salvar aviso</button>
+        <button type="button" class="btn sec" id="b-aviso-teste">Enviar teste agora</button>
+      </form>
+      <div class="status" id="aviso-status" style="text-align:left"></div>
+      <div class="msg" id="msg-aviso" role="status"></div>
+    </section>
   </div>
 </div>
 </main>
@@ -131,6 +159,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=11"></script>
+<script src="supervisor.js?v=12"></script>
 </body>
 </html>

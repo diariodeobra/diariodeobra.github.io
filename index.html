@@ -60,7 +60,11 @@
     <div style="display:flex;flex-direction:column;gap:14px">
     <fieldset>
       <legend>Identificação</legend>
-      <div class="row3 ident">
+      <label id="lbl-selobra" hidden>Obra
+        <select id="selobra"><option value="">Escolha a obra…</option></select>
+      </label>
+      <div class="status" id="obra-info" hidden></div>
+      <div class="row3 ident" id="ident-manual">
         <label>ID<input id="idobra" list="ids" inputmode="numeric" class="num" placeholder="Ex.: 2626"></label>
         <label>Obra<input id="obra" list="obras" required placeholder="Ex.: AQUION"></label>
         <label>Local<input id="local" list="locais" placeholder="Ex.: Poços de Caldas"></label>
@@ -168,6 +172,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
