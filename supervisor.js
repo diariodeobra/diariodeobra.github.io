@@ -141,30 +141,33 @@ async function carregar(){
 }
 
 /* ---------- cadastro de obras ---------- */
-let cadObras=[],editandoId=null;
+let cadObras=[],editandoId=null,usuarios=[];
+const nomeUsu=l=>(usuarios.find(u=>u.login===l)||{}).nome||l;
 async function carregarObras(){
-  try{const j=await chamar({acao:"obrasTodas"});cadObras=j.obras||[];renderObras2();}
+  try{const j=await chamar({acao:"obrasTodas"});cadObras=j.obras||[];usuarios=j.usuarios||[];renderObras2();renderUsu();}
   catch(e){msg("msg-obras","Não consegui carregar as obras: "+e.message,true);}
 }
 function renderObras2(){
   const at=cadObras.filter(o=>o.ativa).length;
   $("n-obras").textContent="("+at+" ativa"+(at!==1?"s":"")+(cadObras.length>at?", "+(cadObras.length-at)+" inativa"+(cadObras.length-at>1?"s":""):"")+")";
-  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td><button type="button" class="linkbtn" data-ed="${i}">Editar</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
+  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${(o.responsaveis||[]).length?esc(o.responsaveis.map(nomeUsu).join(", ")):'<span class="status">Todos</span>'}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td><button type="button" class="linkbtn" data-ed="${i}">Editar</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
   $("t-cad-obras").querySelectorAll("[data-ed]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirObra(cadObras[+b.dataset.ed]);});
 }
 function abrirObra(o){
   editandoId=o?o.id:null;
   $("o-id").value=o?o.id:"";$("o-nome").value=o?o.obra:"";$("o-local").value=o?o.local:"";$("o-ativa").value=!o||o.ativa?"1":"0";
+  const sel=new Set(o?o.responsaveis||[]:[]);
+  $("o-resp").innerHTML=usuarios.filter(u=>u.ativo||sel.has(u.login)).map(u=>`<label class="chip"><input type="checkbox" value="${esc(u.login)}"${sel.has(u.login)?" checked":""}>${esc(u.nome)}</label>`).join("")||'<span class="status">Cadastre os encarregados na seção abaixo.</span>';
   $("f-obra-form").hidden=false;$("b-obra-salvar").textContent=o?"Salvar alterações":"Cadastrar obra";msg("msg-obras","");$("o-id").focus();
 }
 $("b-nova-obra").onclick=()=>abrirObra(null);
 $("b-obra-cancelar").onclick=()=>{$("f-obra-form").hidden=true;editandoId=null;msg("msg-obras","");};
 $("f-obra-form").addEventListener("submit",async e=>{
   e.preventDefault();
-  const obra={id:$("o-id").value.trim(),obra:$("o-nome").value.trim(),local:$("o-local").value.trim(),ativa:$("o-ativa").value==="1",idOriginal:editandoId||""};
+  const obra={id:$("o-id").value.trim(),obra:$("o-nome").value.trim(),local:$("o-local").value.trim(),ativa:$("o-ativa").value==="1",idOriginal:editandoId||"",responsaveis:[...$("o-resp").querySelectorAll("input:checked")].map(i=>i.value)};
   if(!obra.id||!obra.obra){msg("msg-obras","Informe o ID e o nome da obra.",true);return;}
   const b=$("b-obra-salvar");b.disabled=true;msg("msg-obras","Salvando…");
-  try{const j=await enviar({acao:"obraSalvar",obra});cadObras=j.obras||[];renderObras2();$("f-obra-form").hidden=true;editandoId=null;msg("msg-obras","Obra "+obra.id+" salva. Os celulares recebem a lista nova ao abrir o app.");}
+  try{const j=await enviar({acao:"obraSalvar",obra});cadObras=j.obras||[];if(j.usuarios)usuarios=j.usuarios;renderObras2();renderUsu();$("f-obra-form").hidden=true;editandoId=null;msg("msg-obras","Obra "+obra.id+" salva. Os celulares recebem a lista nova ao abrir o app.");}
   catch(err){msg("msg-obras",err.message,true);}
   finally{b.disabled=false;}
 });
@@ -184,6 +187,39 @@ $("f-senha").addEventListener("submit",async e=>{
     $("s-nova").value="";$("s-conf").value="";
     msg("msg-senha","Senha trocada. Use a nova senha nos próximos acessos.");
   }catch(err){msg("msg-senha","Não consegui trocar: "+err.message,true);}
+  finally{b.disabled=false;}
+});
+
+/* ---------- encarregados ---------- */
+let editandoUsu=null;
+function renderUsu(){
+  const at=usuarios.filter(u=>u.ativo).length;
+  $("n-usu").textContent="("+at+" ativo"+(at!==1?"s":"")+")";
+  const obrasDe=l=>cadObras.filter(o=>o.ativa&&(o.responsaveis||[]).includes(l)).map(o=>o.id);
+  const livres=cadObras.filter(o=>o.ativa&&!(o.responsaveis||[]).length).length;
+  $("t-usu").innerHTML=usuarios.length?usuarios.map((u,i)=>{const ob=obrasDe(u.login);return `<tr><td>${esc(u.login)}</td><td>${esc(u.nome)}</td><td>${ob.length?esc(ob.join(", ")):""}${livres?`<span class="status">${ob.length?" + ":""}${livres} livre${livres>1?"s":""}</span>`:""}</td><td>${u.ativo?'<span class="pill ok">Ativo</span>':'<span class="pill">Inativo</span>'}</td><td><button type="button" class="linkbtn" data-u="${i}">Editar / senha</button></td></tr>`;}).join(""):'<tr><td colspan="5" class="status">Nenhum encarregado cadastrado. Clique em + Novo encarregado.</td></tr>';
+  $("t-usu").querySelectorAll("[data-u]").forEach(b=>b.onclick=()=>abrirUsu(usuarios[+b.dataset.u]));
+}
+function abrirUsu(u){
+  editandoUsu=u?u.login:null;
+  $("u-login").value=u?u.login:"";$("u-nome").value=u?u.nome:"";$("u-senha").value="";$("u-ativo").value=!u||u.ativo?"1":"0";
+  $("u-senha-lbl").textContent=u?"Nova senha (deixe vazio para manter)":"Senha";
+  $("b-usu-salvar").textContent=u?"Salvar alterações":"Cadastrar encarregado";
+  $("f-usu").hidden=false;msg("msg-usu","");$(u?"u-nome":"u-login").focus();
+}
+$("b-novo-usu").onclick=()=>abrirUsu(null);
+$("b-usu-cancelar").onclick=()=>{$("f-usu").hidden=true;editandoUsu=null;msg("msg-usu","");};
+$("f-usu").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const d={login:$("u-login").value.trim().toLowerCase(),nome:$("u-nome").value.trim(),senha:$("u-senha").value,ativo:$("u-ativo").value==="1",loginOriginal:editandoUsu||""};
+  if(!editandoUsu&&d.senha.length<6){msg("msg-usu","Defina uma senha com pelo menos 6 caracteres.",true);return;}
+  const b=$("b-usu-salvar");b.disabled=true;msg("msg-usu","Salvando…");
+  try{
+    const j=await enviar({acao:"usuarioSalvar",usuario:d});usuarios=j.usuarios||[];if(j.obras)cadObras=j.obras;renderUsu();renderObras2();
+    $("f-usu").hidden=true;$("u-senha").value="";
+    msg("msg-usu",(editandoUsu?"Encarregado atualizado":"Encarregado cadastrado")+(d.senha?". Passe o usuário "+d.login+" e a senha para ele em particular.":"."));
+    editandoUsu=null;
+  }catch(err){msg("msg-usu",err.message,true);}
   finally{b.disabled=false;}
 });
 

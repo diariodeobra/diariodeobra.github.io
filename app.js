@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 21:00";
+const VERSAO="27/10/2026 22:00";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -102,7 +102,8 @@ function update(){
 }
 function validar(){
   const falta=[];
-  if(listaObras.length&&!$("selobra").value){msg("Escolha a obra na lista.",true);$("selobra").focus();return false;}
+  if(!lerSessao()){mostrarLogin("Entre com seu usuário para salvar o RDO.");return false;}
+  if(!$("selobra").value){msg(listaObras.length?"Escolha a obra na lista.":"Nenhuma obra liberada para você. Fale com o supervisor.",true);$("selobra").focus();return false;}
   if(!$("obra").value.trim())falta.push("obra");
   if(!$("data").value)falta.push("data");
   if(!$("resp").value.trim())falta.push("responsável");
@@ -173,28 +174,66 @@ function criadoEm(r){
   return new Date(r.salvoEm||Date.now()).getTime();
 }
 const dentroPrazo=r=>Date.now()-criadoEm(r)<=PRAZO_MS;
-function lerPerfil(){try{return localStorage.getItem("resp-celular")||"";}catch(e){return "";}}
-function gravarPerfil(n){try{if(n)localStorage.setItem("resp-celular",n);else localStorage.removeItem("resp-celular");}catch(e){}}
-const doResponsavel=r=>{const p=lerPerfil();return !p||norm(r.resp)===norm(p);};
+/* ---------- sessão do encarregado (usuário e senha cadastrados pelo supervisor) ---------- */
+function lerSessao(){try{return JSON.parse(localStorage.getItem("sessao")||"null");}catch(e){return null;}}
+function gravarSessao(s){try{if(s)localStorage.setItem("sessao",JSON.stringify(s));else localStorage.removeItem("sessao");}catch(e){}}
+const lerPerfil=()=>(lerSessao()||{}).nome||"";
+const meuLogin=()=>(lerSessao()||{}).usuario||"";
+// RDO é do usuário logado (RDOs antigos, sem login, comparam pelo nome)
+const doResponsavel=r=>{const s=lerSessao();if(!s)return false;return r.usuario?r.usuario===s.usuario:norm(r.resp)===norm(s.nome);};
 const podeEditar=r=>dentroPrazo(r)&&doResponsavel(r);
 function motivoBloqueio(r){
   if(!doResponsavel(r))return "Registro de outro responsável";
   if(!dentroPrazo(r))return "Edição encerrada (48 h)";
   return "";
 }
-// responsável fixo neste celular
 function aplicarPerfil(){
-  const p=lerPerfil(),i=$("resp");
-  if(p){i.value=p;i.readOnly=true;}else i.readOnly=false;
-  $("perfil-info").hidden=!p;
-  if(p)$("perfil-nome").textContent=p;
+  const s=lerSessao(),i=$("resp");
+  i.value=s?s.nome:"";i.readOnly=true;
+  $("perfil-info").hidden=!s;
+  if(s)$("perfil-nome").textContent=s.nome+" ("+s.usuario+")";
 }
-let confirmaTroca=false;
-$("b-trocar-resp").onclick=()=>{
-  if(!confirmaTroca){confirmaTroca=true;$("b-trocar-resp").textContent="Toque de novo para trocar";setTimeout(()=>{confirmaTroca=false;$("b-trocar-resp").textContent="Trocar responsável";},4000);return;}
-  confirmaTroca=false;gravarPerfil("");$("resp").value="";aplicarPerfil();render();$("resp").focus();
-  msg("Digite o nome do novo responsável. Ele fica gravado neste celular no próximo RDO salvo.");
+function mostrarLogin(motivo){
+  $("v-entrar").hidden=false;["nav-tabs","v-novo","v-hist","v-painel"].forEach(id=>{const e=$(id);if(e)e.hidden=true;});
+  try{if(!motivo&&localStorage.getItem("sessao-msg"))motivo=MSG_SESSAO;localStorage.removeItem("sessao-msg");}catch(e){}
+  $("l-msg").textContent=motivo||"";$("l-msg").className="msg"+(motivo?" err":"");
+  const u=$("l-usuario");if(!u.value)u.value=(lerSessao()||{}).usuario||localStorage.getItem("ultimo-usuario")||"";
+}
+function esconderLogin(){$("v-entrar").hidden=true;$("nav-tabs").hidden=false;tab(false);aplicarPerfil();}
+$("f-entrar").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const usuario=$("l-usuario").value.trim().toLowerCase(),senha=$("l-senha").value;
+  if(!usuario||!senha){$("l-msg").textContent="Digite o usuário e a senha.";$("l-msg").className="msg err";return;}
+  if(!navigator.onLine){$("l-msg").textContent="Para entrar é preciso internet. Depois o app funciona sem sinal.";$("l-msg").className="msg err";return;}
+  const b=$("b-entrar-app");b.disabled=true;$("l-msg").textContent="Entrando…";$("l-msg").className="msg";
+  try{
+    const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({acao:"login",usuario,senha,chave:CENTRAL.chave})});
+    const res=await r.json();
+    if(!res.ok)throw new Error(res.erro||"Não consegui entrar.");
+    gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome});
+    try{localStorage.setItem("ultimo-usuario",res.usuario.login);localStorage.removeItem("obras-lista");}catch(err){}
+    $("l-senha").value="";esconderLogin();
+    await carregar();carregarListaObras();sincronizar();
+    msg("Olá, "+res.usuario.nome+". Você está pronto para registrar o RDO.");
+  }catch(err){$("l-msg").textContent=err.message;$("l-msg").className="msg err";}
+  finally{b.disabled=false;}
+});
+let confirmaSair=false;
+$("b-sair-app").onclick=()=>{
+  const s=lerSessao();
+  const pend=registros.filter(r=>r.central!=="ok"&&r.usuario===(s&&s.usuario)).length;
+  if(!confirmaSair){
+    confirmaSair=true;
+    $("b-sair-app").textContent=pend?"Há "+pend+" RDO(s) seus sem envio. Toque de novo para sair mesmo assim":"Toque de novo para sair";
+    setTimeout(()=>{confirmaSair=false;$("b-sair-app").textContent="Sair";},5000);return;
+  }
+  confirmaSair=false;$("b-sair-app").textContent="Sair";
+  gravarSessao(null);try{localStorage.removeItem("obras-lista");}catch(e){}
+  aplicarListaObras([]);mostrarLogin("");
 };
+// sessão expirada ou usuário desativado/senha redefinida pelo supervisor
+const MSG_SESSAO="Sua sessão terminou (senha redefinida ou usuário alterado pelo supervisor). Entre novamente. Os RDOs salvos continuam no celular.";
+function sessaoInvalida(){gravarSessao(null);try{localStorage.setItem("sessao-msg","1");}catch(e){}mostrarLogin(MSG_SESSAO);}
 // apaga do celular os RDOs com mais de 48 h que já estão na central
 async function limparAntigos(){
   if(!temCentral())return;
@@ -210,7 +249,8 @@ async function salvar(){
     const atual=registros.find(x=>x._id===editId);
     if(atual&&!podeEditar(atual))throw new Error(motivoBloqueio(atual)+". Este RDO não pode mais ser alterado neste celular.");
   }
-  if(!lerPerfil()&&r.resp)gravarPerfil(r.resp.trim());
+  const s=lerSessao();if(!s)throw new Error("Entre com seu usuário para salvar o RDO.");
+  r.resp=s.nome;r.usuario=s.usuario;
   if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}
   const id=editId||("rdo-"+Date.now());
   const antigo=editId?registros.find(x=>x._id===editId):null;
@@ -228,7 +268,7 @@ let listaObras=[];
 function lerListaLocal(){try{return JSON.parse(localStorage.getItem("obras-lista")||"[]");}catch(e){return [];}}
 function aplicarListaObras(lista){
   listaObras=(lista||[]).filter(o=>o&&o.id&&o.obra);
-  const usar=listaObras.length>0;
+  const usar=listaObras.length>0||!!lerSessao();
   $("lbl-selobra").hidden=!usar;$("ident-manual").hidden=usar;
   const sel=$("selobra"),atual=$("idobra").value.trim();
   sel.innerHTML='<option value="">Escolha a obra…</option>'+listaObras.map(o=>`<option value="${esc(o.id)}">${esc(o.id+" - "+o.obra+(o.local?" / "+o.local:""))}</option>`).join("");
@@ -254,11 +294,14 @@ $("selobra").addEventListener("change",()=>{
 });
 async function carregarListaObras(){
   aplicarListaObras(lerListaLocal());
-  if(!(window.CENTRAL&&CENTRAL.url&&CENTRAL.chave)||!navigator.onLine)return;
+  if(!(window.CENTRAL&&CENTRAL.url&&CENTRAL.chave)||!navigator.onLine||!lerSessao())return;
   try{
-    const r=await fetch(CENTRAL.url+"?acao=obras&chave="+encodeURIComponent(CENTRAL.chave));
-    const res=await r.json();
-    if(res.ok&&Array.isArray(res.obras)){try{localStorage.setItem("obras-lista",JSON.stringify(res.obras));}catch(e){}aplicarListaObras(res.obras);}
+    const res=await postCentral({acao:"obras"});
+    if(Array.isArray(res.obras)){
+      try{localStorage.setItem("obras-lista",JSON.stringify(res.obras));}catch(e){}
+      aplicarListaObras(res.obras);
+      if(!res.obras.length)msg("Nenhuma obra está sob sua responsabilidade. Peça ao supervisor para incluir você nas obras.",true);
+    }
   }catch(e){}
 }
 
@@ -267,8 +310,11 @@ const CENTRAL=window.CENTRAL||{};
 const temCentral=()=>!!(CENTRAL.url&&CENTRAL.chave);
 let sincronizando=false;
 async function postCentral(o){
-  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...o,chave:CENTRAL.chave})});
-  const res=await r.json();if(!res.ok)throw new Error(res.erro||"falha no envio");return res;
+  const s=lerSessao();if(!s)throw new Error("sem login");
+  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...o,chave:CENTRAL.chave,token:s.token})});
+  const res=await r.json();
+  if(!res.ok){if(res.erro==="sessao"){sessaoInvalida();throw new Error("login necessário");}throw new Error(res.erro||"falha no envio");}
+  return res;
 }
 async function enviarCentral(r){
   const fs=(r.fotos||[]).filter(f=>f&&f.blob);
@@ -287,15 +333,16 @@ async function enviarPdfCentral(r){
   await postCentral({acao:"pdf",uid:r._id,b64});
 }
 async function sincronizar(){
-  if(!temCentral()||sincronizando||!navigator.onLine)return;
+  if(!temCentral()||sincronizando||!navigator.onLine||!lerSessao())return;
   sincronizando=true;let erro="";
   try{
-    for(const r of registros.filter(x=>x.central!=="ok")){
+    const meus=r=>doResponsavel(r);
+    for(const r of registros.filter(x=>x.central!=="ok"&&meus(x))){
       try{await enviarCentral(r);r.central="ok";r.centralPdf="ok";r.centralEm=new Date().toISOString();await dbPut(r);}
       catch(e){erro=String(e&&e.message||e);break;}
     }
     // RDOs enviados antes desta versão: completa só o PDF
-    if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.centralPdf!=="ok")){
+    if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.centralPdf!=="ok"&&meus(x))){
       try{await enviarPdfCentral(r);r.centralPdf="ok";await dbPut(r);}
       catch(e){erro=String(e&&e.message||e);break;}
     }
@@ -707,6 +754,7 @@ $("versao").textContent="Versão "+VERSAO;
   paintClima();renderFotos();$("mtot").textContent=total(lerForm());
   aplicarPerfil();
   await carregar();
+  if(!lerSessao())mostrarLogin("");
   carregarListaObras();
   setInterval(()=>{if(document.visibilityState==="visible")carregar();},10*60*1000);
   sincronizar();

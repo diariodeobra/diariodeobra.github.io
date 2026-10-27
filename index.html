@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <header class="band">
@@ -25,7 +25,19 @@
   <div class="stripe"></div>
 </header>
 
-<nav class="tabs">
+<div class="wrap" id="v-entrar" hidden style="padding-block:24px">
+  <form class="login-app" id="f-entrar" autocomplete="on">
+    <h2>Entrar no Diário de Obra</h2>
+    <p class="status" style="text-align:left;margin:0">Use o usuário e a senha cadastrados pelo supervisor.</p>
+    <label>Usuário<input id="l-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label>Senha<input id="l-senha" type="password" autocomplete="current-password"></label>
+    <button type="submit" class="btn pri" id="b-entrar-app">Entrar</button>
+    <div class="msg" id="l-msg" role="status"></div>
+    <p class="status" style="text-align:left;margin:0">Esqueceu a senha? Peça ao supervisor para redefinir.</p>
+  </form>
+</div>
+
+<nav class="tabs" id="nav-tabs">
   <div class="wrap" role="tablist">
     <button class="tab" role="tab" id="t-novo" aria-selected="true">Novo registro</button>
     <button class="tab" role="tab" id="t-hist" aria-selected="false">Histórico <span id="hist-n"></span></button>
@@ -74,8 +86,8 @@
         <label>Data<input id="data" type="date" required class="num"></label>
         <label>Nº do RDO<input id="rdo" type="number" min="1" inputmode="numeric" class="num" placeholder="auto"></label>
       </div>
-      <label>Responsável pelo registro<input id="resp" required placeholder="Nome de quem preenche"></label>
-      <div class="status" id="perfil-info" hidden style="text-align:left">Responsável deste celular: <b id="perfil-nome"></b> · <button type="button" class="linkbtn" id="b-trocar-resp">Trocar responsável</button></div>
+      <label>Responsável pelo registro<input id="resp" required readonly placeholder="Entre com seu usuário"></label>
+      <div class="status" id="perfil-info" hidden style="text-align:left">Conectado como <b id="perfil-nome"></b> · <button type="button" class="linkbtn" id="b-sair-app">Sair</button></div>
       <div class="row">
         <label>Início do expediente<input id="hini" type="time" value="07:00" class="num"></label>
         <label>Fim do expediente<input id="hfim" type="time" value="17:00" class="num"></label>
@@ -165,7 +177,7 @@
   </div>
   <div class="msg" id="msg-exp" role="status"></div>
   <div class="notice instalar" id="sync-st" hidden><span></span><button type="button" class="btn pri" id="b-sync">Enviar agora</button></div>
-  <p class="status" style="text-align:left;margin:0">O histórico mostra os RDOs das <b>últimas 48 horas</b>. Só o responsável pelo registro pode editar ou excluir, e só nesse prazo. Os RDOs mais antigos ficam guardados com o supervisor.</p>
+  <p class="status" style="text-align:left;margin:0">O histórico mostra os RDOs das <b>últimas 48 horas</b>. Só quem registrou (usuário logado) pode editar ou excluir, e só nesse prazo. Os RDOs mais antigos ficam guardados com o supervisor.</p>
   <div class="list" id="lista">
     <div class="empty">Nenhum RDO salvo neste celular ainda. Preencha a aba <b>Novo registro</b>; os diários aparecem aqui, do mais recente para o mais antigo.</div>
   </div>
@@ -174,6 +186,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

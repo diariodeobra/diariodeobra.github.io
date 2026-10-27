@@ -20,14 +20,14 @@ const COLUNAS = [
   "hini", "hfim", "clima_manha", "clima_tarde",
   "lider", "montador", "auxiliar", "outros", "total",
   "ativ", "equip", "mat", "ocor", "obs",
-  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf"
+  "n_fotos", "fotos", "pasta_fotos", "salvo_no_celular", "pdf", "usuario"
 ];
 const TITULOS = [
   "Código interno", "Recebido em", "ID", "Obra", "Local", "Data", "Nº RDO", "Responsável",
   "Início", "Fim", "Tempo manhã", "Tempo tarde",
   "Líder", "Montador", "Auxiliar", "Outros", "Total efetivo",
   "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
-  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO"
+  "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO", "Usuário (login)"
 ];
 
 function definirSenha_(nova) {
@@ -132,12 +132,22 @@ function doPost(e) {
     const lk = LockService.getScriptLock(); lk.waitLock(20000);
     try { return json_(recuperar_(body)); } finally { lk.releaseLock(); }
   }
+  // login do encarregado vem antes: ele também envia "senha"
+  if (body && body.acao === "login") {
+    if (body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+    return json_(login_(body));
+  }
   if (body && body.senha !== undefined) return json_(acaoSupervisor_(body));
   if (!body || body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+  const u = sessao_(body.token);
+  if (!u) return json_({ ok: false, erro: "sessao" });
+  if (body.acao === "obras") return json_({ ok: true, obras: obrasParaCampo_(u), usuario: { login: u.login, nome: u.nome } });
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}));
+    if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}, u));
+    const sh = aba_(), linha = linhaDoUid_(sh, limpa_(body.uid, 80));
+    if (linha) { const dono = lerLinha_(sh, linha).usuario; if (dono && dono !== u.login) return json_({ ok: false, erro: "Este RDO é de outro responsável." }); }
     if (body.acao === "foto") return json_(salvarFoto_(body));
     if (body.acao === "fim") return json_(fecharFotos_(body));
     if (body.acao === "pdf") return json_(salvarPdf_(body));
@@ -145,17 +155,22 @@ function doPost(e) {
   } finally { lock.releaseLock(); }
 }
 
-function salvarRdo_(r) {
+function salvarRdo_(r, u) {
   const uid = limpa_(r.uid, 80);
   if (!uid) return { ok: false, erro: "sem uid" };
   const sh = aba_();
   let linha = linhaDoUid_(sh, uid);
   const antigo = linha ? lerLinha_(sh, linha) : null;
+  if (antigo && antigo.usuario && antigo.usuario !== u.login) return { ok: false, erro: "Este RDO é de outro responsável." };
+  // edição: até 48 h da criação, com 24 h de folga para quem ficou sem internet
+  const criado = (/^rdo-(\d{12,})/.exec(uid) || [])[1];
+  if (antigo && criado && Date.now() - Number(criado) > 72 * 3600 * 1000) return { ok: false, erro: "O prazo para editar este RDO terminou." };
+  if (!obraPermitida_(r.idobra, u)) return { ok: false, erro: "A obra " + limpa_(r.idobra, 40) + " não está sob sua responsabilidade." };
   const n = k => parseInt(r[k], 10) || 0;
   const reg = {
     uid: uid, recebido_em: new Date(),
     idobra: limpa_(r.idobra, 40), obra: limpa_(r.obra, 120), local: limpa_(r.local, 120),
-    data: limpa_(r.data, 10), rdo: limpa_(r.rdo, 10), resp: limpa_(r.resp, 120),
+    data: limpa_(r.data, 10), rdo: limpa_(r.rdo, 10), resp: u.nome,
     hini: limpa_(r.hini, 5), hfim: limpa_(r.hfim, 5),
     clima_manha: limpa_(r.clima_manha, 40), clima_tarde: limpa_(r.clima_tarde, 40),
     lider: n("m_lid"), montador: n("m_mon"), auxiliar: n("m_aux"), outros: n("m_out"),
@@ -165,7 +180,8 @@ function salvarRdo_(r) {
     fotos: antigo ? antigo.fotos : "[]",
     pasta_fotos: antigo ? antigo.pasta_fotos : "",
     salvo_no_celular: limpa_(r.salvoEm, 40),
-    pdf: antigo ? antigo.pdf : ""
+    pdf: antigo ? antigo.pdf : "",
+    usuario: u.login
   };
   const valores = [COLUNAS.map(c => reg[c])];
   if (linha) sh.getRange(linha, 1, 1, COLUNAS.length).setValues(valores);
@@ -233,7 +249,6 @@ function salvarPdf_(b) {
 function doGet(e) {
   const p = (e && e.parameter) || {};
   if (p.acao === "ping") return json_({ ok: true, app: "Diário de Obra ECTAS" });
-  if (p.acao === "obras" && p.chave === CHAVE_CAMPO) return json_({ ok: true, obras: obrasParaCampo_() });
   const senhaAtual = prop_("SENHA_SUPERVISOR");
   if (!senhaAtual) {
     if (p.acao === "definirSenha" && String(p.nova || "").length >= 6) {
@@ -253,7 +268,7 @@ function doGet(e) {
     });
     return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est });
   }
-  if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_() });
+  if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_(), usuarios: listarUsu_() });
   if (p.acao === "config") return json_({ ok: true, config: config_() });
   if (p.acao === "foto") {
     try {
@@ -270,9 +285,12 @@ const ABA_OBRAS = "Obras";
 function abaObras_() {
   const ss = planilha_();
   let sh = ss.getSheetByName(ABA_OBRAS);
-  if (sh) return sh;
+  if (sh) {
+    if (sh.getRange(1, 5).getValue() === "") sh.getRange(1, 5).setValue("Responsáveis (logins)").setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    return sh;
+  }
   sh = ss.insertSheet(ABA_OBRAS, 0);
-  sh.getRange(1, 1, 1, 4).setValues([["ID", "Obra", "Local", "Ativa"]])
+  sh.getRange(1, 1, 1, 5).setValues([["ID", "Obra", "Local", "Ativa", "Responsáveis (logins)"]])
     .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
   sh.setFrozenRows(1);
   sh.getRange("A:A").setNumberFormat("@");
@@ -299,21 +317,30 @@ function abaObras_() {
 function listarObras_() {
   const sh = abaObras_(), n = sh.getLastRow();
   if (n < 2) return [];
-  return sh.getRange(2, 1, n - 1, 4).getValues()
+  return sh.getRange(2, 1, n - 1, 5).getValues()
     .filter(l => String(l[0]).trim() || String(l[1]).trim())
-    .map(l => ({ id: String(l[0]).trim(), obra: String(l[1]).trim(), local: String(l[2]).trim(), ativa: !/^n/i.test(String(l[3]).trim()) }))
+    .map(l => ({ id: String(l[0]).trim(), obra: String(l[1]).trim(), local: String(l[2]).trim(), ativa: !/^n/i.test(String(l[3]).trim()),
+      responsaveis: String(l[4] || "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean) }))
     .sort((a, b) => a.id.localeCompare(b.id, "pt", { numeric: true }));
 }
 
 // lista para o app de campo, com o último nº de RDO de cada obra (numeração contínua entre celulares)
-function obrasParaCampo_() {
+// obra sem responsáveis definidos fica liberada para todos os encarregados
+function obraPermitida_(id, u) {
+  const o = listarObras_().find(x => norm_(x.id) === norm_(id));
+  if (!o) return true;
+  return !o.responsaveis.length || o.responsaveis.indexOf(u.login) >= 0;
+}
+
+function obrasParaCampo_(u) {
   const ultimo = {};
   const sh = aba_(), n = sh.getLastRow();
   if (n >= 2) sh.getRange(2, 3, n - 1, 5).getValues().forEach(l => {
     const k = norm_(l[0]), r = parseInt(l[4], 10) || 0;
     if (k && r > (ultimo[k] || 0)) ultimo[k] = r;
   });
-  return listarObras_().filter(o => o.ativa).map(o => ({ ...o, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
+  return listarObras_().filter(o => o.ativa && (!o.responsaveis.length || o.responsaveis.indexOf(u.login) >= 0))
+    .map(o => ({ id: o.id, obra: o.obra, local: o.local, ativa: true, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
 }
 
 function salvarObra_(o) {
@@ -324,10 +351,110 @@ function salvarObra_(o) {
   const i = ids.indexOf(norm_(o.idOriginal || id));
   const dup = ids.indexOf(norm_(id));
   if (dup >= 0 && dup !== i) return { ok: false, erro: "Já existe uma obra com o ID " + id + "." };
-  const linha = [[id, obra, local, o.ativa === false ? "Não" : "Sim"]];
-  if (i >= 0) sh.getRange(i + 2, 1, 1, 4).setValues(linha);
+  const resp = (Array.isArray(o.responsaveis) ? o.responsaveis : []).map(x => String(x).trim().toLowerCase()).filter(Boolean).join(", ");
+  const linha = [[id, obra, local, o.ativa === false ? "Não" : "Sim", resp]];
+  if (i >= 0) sh.getRange(i + 2, 1, 1, 5).setValues(linha);
   else sh.appendRow(linha[0]);
-  return { ok: true, obras: listarObras_() };
+  return { ok: true, obras: listarObras_(), usuarios: listarUsu_() };
+}
+
+/* ---------- Encarregados: usuário e senha do app de campo ---------- */
+const ABA_USU = "Encarregados";
+const DIAS_SESSAO = 30;
+
+function abaUsu_() {
+  const ss = planilha_();
+  let sh = ss.getSheetByName(ABA_USU);
+  if (sh) return sh;
+  sh = ss.insertSheet(ABA_USU, 1);
+  sh.getRange(1, 1, 1, 6).setValues([["Usuário (login)", "Nome", "Ativo", "Senha (protegida)", "Sal", "Versão"]])
+    .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+  sh.setFrozenRows(1);
+  sh.getRange("A:A").setNumberFormat("@");
+  sh.setColumnWidth(2, 240);
+  sh.hideColumns(4, 3);
+  return sh;
+}
+
+function hash_(senha, sal) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sal + "|" + senha, Utilities.Charset.UTF_8));
+}
+
+function lerUsuarios_() {
+  const sh = abaUsu_(), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, 6).getValues().map((l, i) => ({
+    linha: i + 2, login: String(l[0]).trim().toLowerCase(), nome: String(l[1]).trim(),
+    ativo: !/^n/i.test(String(l[2]).trim()), hash: String(l[3]), sal: String(l[4]), versao: Number(l[5]) || 1
+  })).filter(x => x.login);
+}
+
+function listarUsu_() {
+  return lerUsuarios_().map(u => ({ login: u.login, nome: u.nome, ativo: u.ativo, temSenha: !!u.hash }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+}
+
+function salvarUsu_(d) {
+  const login = String(d.login || "").trim().toLowerCase();
+  const nome = limpa_(d.nome, 80).trim();
+  if (!/^[a-z0-9._-]{3,30}$/.test(login)) return { ok: false, erro: "Usuário deve ter de 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado (sem espaço)." };
+  if (!nome) return { ok: false, erro: "Informe o nome do encarregado." };
+  const sh = abaUsu_(), todos = lerUsuarios_();
+  const orig = String(d.loginOriginal || "").trim().toLowerCase();
+  const atual = todos.find(x => x.login === (orig || login));
+  if (todos.some(x => x.login === login && x !== atual)) return { ok: false, erro: "Já existe o usuário " + login + "." };
+  const senha = String(d.senha || "");
+  if (!atual && senha.length < 6) return { ok: false, erro: "Defina uma senha com pelo menos 6 caracteres." };
+  if (senha && senha.length < 6) return { ok: false, erro: "A senha precisa ter pelo menos 6 caracteres." };
+  let hash = atual ? atual.hash : "", sal = atual ? atual.sal : "", versao = atual ? atual.versao : 1;
+  if (senha) { sal = Utilities.getUuid(); hash = hash_(senha, sal); versao++; }   // nova senha encerra as sessões abertas
+  const ativo = d.ativo !== false;
+  if (atual && atual.ativo && !ativo) versao++;                                      // desativar também encerra
+  const linha = [[login, nome, ativo ? "Sim" : "Não", hash, sal, versao]];
+  if (atual) sh.getRange(atual.linha, 1, 1, 6).setValues(linha); else sh.appendRow(linha[0]);
+  // se o login mudou, atualiza os responsáveis das obras
+  if (atual && atual.login !== login) {
+    const so = abaObras_(), n = so.getLastRow();
+    if (n >= 2) {
+      const r = so.getRange(2, 5, n - 1, 1).getValues().map(l => [String(l[0]).split(/[,;\s]+/).map(x => x.trim().toLowerCase() === atual.login ? login : x.trim()).filter(Boolean).join(", ")]);
+      so.getRange(2, 5, n - 1, 1).setValues(r);
+    }
+  }
+  return { ok: true, usuarios: listarUsu_(), obras: listarObras_() };
+}
+
+function login_(b) {
+  const login = String(b.usuario || "").trim().toLowerCase();
+  const cache = CacheService.getScriptCache(), k = "falhas_" + login;
+  const falhas = Number(cache.get(k) || 0);
+  if (falhas >= 8) return { ok: false, erro: "Muitas tentativas. Aguarde 15 minutos ou peça ao supervisor para redefinir a senha." };
+  const u = lerUsuarios_().find(x => x.login === login);
+  if (!u || !u.ativo || !u.hash || hash_(String(b.senha || ""), u.sal) !== u.hash) {
+    cache.put(k, String(falhas + 1), 900);
+    return { ok: false, erro: u && !u.ativo ? "Usuário desativado. Fale com o supervisor." : "Usuário ou senha incorretos." };
+  }
+  cache.remove(k);
+  limparSessoes_();
+  const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("tk_" + token, JSON.stringify({ l: u.login, v: u.versao, exp: Date.now() + DIAS_SESSAO * 864e5 }));
+  return { ok: true, token: token, usuario: { login: u.login, nome: u.nome } };
+}
+
+function sessao_(token) {
+  if (!token || !/^[0-9a-f-]{20,}$/i.test(String(token))) return null;
+  const pr = PropertiesService.getScriptProperties();
+  const raw = pr.getProperty("tk_" + token);
+  if (!raw) return null;
+  const t = JSON.parse(raw);
+  if (t.exp < Date.now()) { pr.deleteProperty("tk_" + token); return null; }
+  const u = lerUsuarios_().find(x => x.login === t.l);
+  if (!u || !u.ativo || u.versao !== t.v) { pr.deleteProperty("tk_" + token); return null; }
+  return u;
+}
+
+function limparSessoes_() {
+  const pr = PropertiesService.getScriptProperties(), todas = pr.getProperties(), agora = Date.now();
+  Object.keys(todas).forEach(k => { if (k.indexOf("tk_") === 0) { try { if (JSON.parse(todas[k]).exp < agora) pr.deleteProperty(k); } catch (e) { pr.deleteProperty(k); } } });
 }
 
 /* ---------- Recuperar a senha por código enviado por e-mail ---------- */
@@ -402,6 +529,7 @@ function acaoSupervisor_(b) {
   try {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
+    if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);
     if (b.acao === "recupEmailSalvar") {
@@ -486,6 +614,7 @@ function emailDiario(teste) {
 function configurar() {
   aba_();
   abaObras_();
+  abaUsu_();
   pasta_(PASTA_RAIZ);
   Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
   Logger.log("Gatilhos: " + ScriptApp.getProjectTriggers().length);
