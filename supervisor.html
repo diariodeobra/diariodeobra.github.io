@@ -80,10 +80,28 @@ tbody tr:hover{background:var(--chip)}
     <label>Senha do supervisor<input id="senha" type="password" autocomplete="current-password"></label>
     <button type="button" class="btn pri" id="b-entrar">Entrar</button>
     <div class="msg" id="msg-login" role="status"></div>
+    <form id="f-vencida" hidden autocomplete="off" style="display:flex;flex-direction:column;gap:10px">
+      <div class="notice warn">🔒 <b>Sua senha venceu.</b> Por segurança, a senha do painel é trocada a cada 3 meses. Crie uma nova senha para continuar.</div>
+      <label>Nova senha<input id="v-nova" type="password" autocomplete="new-password" minlength="6"></label>
+      <label>Repita a nova senha<input id="v-conf" type="password" autocomplete="new-password" minlength="6"></label>
+      <button type="submit" class="btn pri" id="b-vencida">Criar nova senha e entrar</button>
+    </form>
+    <button type="button" class="linkbtn" id="b-esqueci" style="align-self:center">Esqueci minha senha</button>
+    <div id="recup" hidden style="display:flex;flex-direction:column;gap:10px">
+      <div class="notice">Vamos enviar um <b>código de 6 dígitos</b> para o e-mail de recuperação cadastrado. Ele vale por 15 minutos.</div>
+      <button type="button" class="btn sec" id="b-recup-pedir">Enviar código por e-mail</button>
+      <form id="f-recup" hidden autocomplete="off" style="display:flex;flex-direction:column;gap:10px">
+        <label>Código recebido<input id="r-cod" inputmode="numeric" maxlength="6" class="num" autocomplete="one-time-code"></label>
+        <label>Nova senha<input id="r-nova" type="password" autocomplete="new-password" minlength="6"></label>
+        <label>Repita a nova senha<input id="r-conf" type="password" autocomplete="new-password" minlength="6"></label>
+        <button type="submit" class="btn pri" id="b-recup-ok">Criar nova senha e entrar</button>
+      </form>
+    </div>
     <p class="status"><a href="./">Voltar ao app de campo</a></p>
   </section>
 
   <div id="v-painel" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="notice warn" id="aviso-senha" hidden></div>
     <div class="topo">
       <span class="status" id="atualizado"></span>
       <span style="display:flex;gap:14px;flex-wrap:wrap">
@@ -155,13 +173,19 @@ tbody tr:hover{background:var(--chip)}
 
     <section class="card" id="c-senha">
       <h2>Senha do painel</h2>
-      <p class="status" style="text-align:left;margin:0">Troque a senha quando alguém deixar de ter acesso ou se ela tiver sido compartilhada. Quem estiver com o painel aberto em outro aparelho precisará entrar de novo.</p>
+      <div class="status" id="senha-status" style="text-align:left"></div>
+      <p class="status" style="text-align:left;margin:0">A senha vence a cada 3 meses (aviso 7 dias antes). Troque também quando alguém deixar de ter acesso ou se ela tiver sido compartilhada. Quem estiver com o painel aberto em outro aparelho precisará entrar de novo.</p>
       <form class="filtros" id="f-senha" autocomplete="off">
         <label>Nova senha<input id="s-nova" type="password" autocomplete="new-password" minlength="6"></label>
         <label>Repita a nova senha<input id="s-conf" type="password" autocomplete="new-password" minlength="6"></label>
         <button type="submit" class="btn pri" id="b-senha">Trocar senha</button>
       </form>
       <div class="msg" id="msg-senha" role="status"></div>
+      <form class="filtros" id="f-recup-email" autocomplete="off">
+        <label style="flex:3 1 260px">E-mail para recuperar a senha<input id="re-email" type="email" inputmode="email"></label>
+        <button type="submit" class="btn sec">Salvar e-mail de recuperação</button>
+      </form>
+      <div class="status" id="recup-status" style="text-align:left"></div>
     </section>
   </div>
 </div>
@@ -170,6 +194,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=13"></script>
+<script src="supervisor.js?v=14"></script>
 </body>
 </html>

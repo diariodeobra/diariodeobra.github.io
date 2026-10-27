@@ -8,6 +8,9 @@
  * A planilha "Diário de Obra ECTAS - Base" é criada no Drive na primeira execução.
  */
 const CHAVE_CAMPO = "ectas-rdo-campo-2026";
+const DIAS_VALIDADE_SENHA = 90;   // a senha do painel vence a cada 3 meses
+const DIAS_AVISO_SENHA = 7;       // aviso antes de vencer
+const EMAIL_DONO = "diariodeobra.ectas@gmail.com"; // recebe o código de recuperação se nenhum outro for cadastrado
 const NOME_PLANILHA = "Diário de Obra ECTAS - Base";
 
 const ABA = "RDOs";
@@ -26,6 +29,23 @@ const TITULOS = [
   "Atividades executadas", "Equipamentos", "Materiais recebidos", "Ocorrências", "Observações",
   "Nº de fotos", "Fotos (id e legenda)", "Pasta das fotos", "Salvo no celular em", "PDF do RDO"
 ];
+
+function definirSenha_(nova) {
+  const pr = PropertiesService.getScriptProperties();
+  pr.setProperty("SENHA_SUPERVISOR", String(nova));
+  pr.setProperty("SENHA_DATA", new Date().toISOString());
+}
+
+// situação da senha: quando foi trocada, quando vence e quantos dias faltam
+function estadoSenha_() {
+  const pr = PropertiesService.getScriptProperties();
+  let d = pr.getProperty("SENHA_DATA");
+  if (!d) { d = new Date().toISOString(); pr.setProperty("SENHA_DATA", d); }
+  const trocada = new Date(d);
+  const vence = new Date(trocada.getTime() + DIAS_VALIDADE_SENHA * 864e5);
+  const dias = Math.ceil((vence.getTime() - Date.now()) / 864e5);
+  return { trocadaEm: trocada.toISOString(), venceEm: vence.toISOString(), diasRestantes: dias, vencida: dias <= 0, validadeDias: DIAS_VALIDADE_SENHA, avisoDias: DIAS_AVISO_SENHA };
+}
 
 function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -108,6 +128,10 @@ function limpa_(s, max) { return String(s == null ? "" : s).slice(0, max || 5000
 function doPost(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (body && (body.acao === "recuperarPedir" || body.acao === "recuperarConfirmar")) {
+    const lk = LockService.getScriptLock(); lk.waitLock(20000);
+    try { return json_(recuperar_(body)); } finally { lk.releaseLock(); }
+  }
   if (body && body.senha !== undefined) return json_(acaoSupervisor_(body));
   if (!body || body.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
   const lock = LockService.getScriptLock();
@@ -213,19 +237,21 @@ function doGet(e) {
   const senhaAtual = prop_("SENHA_SUPERVISOR");
   if (!senhaAtual) {
     if (p.acao === "definirSenha" && String(p.nova || "").length >= 6) {
-      PropertiesService.getScriptProperties().setProperty("SENHA_SUPERVISOR", String(p.nova));
+      definirSenha_(p.nova);
       return json_({ ok: true });
     }
     return json_({ ok: false, erro: "sem senha" });
   }
   if (p.senha !== senhaAtual) return json_({ ok: false, erro: "senha incorreta" });
+  const est = estadoSenha_();
+  if (est.vencida) return json_({ ok: false, erro: "senha vencida", senhaInfo: est });
   if (p.acao === "listar") {
     const sh = aba_();
     const n = sh.getLastRow();
     const dados = n < 2 ? [] : sh.getRange(2, 1, n - 1, COLUNAS.length).getValues().map(v => {
       const o = {}; COLUNAS.forEach((c, i) => o[c] = v[i] instanceof Date ? v[i].toISOString() : v[i]); return o;
     });
-    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl() });
+    return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est });
   }
   if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_() });
   if (p.acao === "config") return json_({ ok: true, config: config_() });
@@ -293,13 +319,56 @@ function salvarObra_(o) {
   return { ok: true, obras: listarObras_() };
 }
 
+/* ---------- Recuperar a senha por código enviado por e-mail ---------- */
+function mascara_(e) {
+  const [u, d] = String(e).split("@");
+  return (u.length <= 2 ? u[0] + "*" : u.slice(0, 2) + "*".repeat(Math.max(2, u.length - 2))) + "@" + d;
+}
+
+function recuperar_(b) {
+  const cache = CacheService.getScriptCache();
+  const para = prop_("EMAIL_RECUP") || EMAIL_DONO;
+  if (b.acao === "recuperarPedir") {
+    if (cache.get("recup_ultimo")) return { ok: true, para: mascara_(para), jaEnviado: true };
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    cache.put("recup", JSON.stringify({ codigo: codigo, tentativas: 0 }), 900);   // 15 minutos
+    cache.put("recup_ultimo", "1", 120);                                         // novo pedido só após 2 min
+    MailApp.sendEmail({
+      to: para, name: "Diário de Obra ECTAS",
+      subject: "Código para criar nova senha do Painel do Supervisor: " + codigo,
+      htmlBody: '<div style="font-family:Arial,sans-serif;color:#1D1D1B"><p>Alguém pediu para criar uma nova senha do <b>Painel do Supervisor</b> do Diário de Obra ECTAS.</p>' +
+        '<p style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#002B49">' + codigo + '</p>' +
+        '<p>O código vale por <b>15 minutos</b>. Digite-o no painel junto com a nova senha.</p>' +
+        '<p style="font-size:12px;color:#606060">Se não foi você, ignore este e-mail: a senha atual continua valendo.</p></div>'
+    });
+    return { ok: true, para: mascara_(para) };
+  }
+  // recuperarConfirmar
+  const r = JSON.parse(cache.get("recup") || "null");
+  if (!r) return { ok: false, erro: "O código expirou. Peça um novo." };
+  r.tentativas++;
+  if (String(b.codigo || "").trim() !== r.codigo) {
+    if (r.tentativas >= 5) { cache.remove("recup"); return { ok: false, erro: "Código incorreto 5 vezes. Peça um novo código." }; }
+    cache.put("recup", JSON.stringify(r), 900);
+    return { ok: false, erro: "Código incorreto. Restam " + (5 - r.tentativas) + " tentativas." };
+  }
+  const nova = String(b.nova || "");
+  if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+  if (nova === prop_("SENHA_SUPERVISOR")) return { ok: false, erro: "A nova senha precisa ser diferente da anterior." };
+  definirSenha_(nova);
+  cache.remove("recup");
+  return { ok: true };
+}
+
 /* ---------- Configurações e e-mail diário ---------- */
 function config_() {
   const pr = PropertiesService.getScriptProperties();
   return {
     emails: pr.getProperty("EMAILS_AVISO") || "",
     hora: parseInt(pr.getProperty("HORA_AVISO") || "7", 10),
-    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "emailDiario")
+    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "emailDiario"),
+    recupEmail: pr.getProperty("EMAIL_RECUP") || "",
+    recupPadrao: EMAIL_DONO
   };
 }
 
@@ -320,14 +389,22 @@ function acaoSupervisor_(b) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);
+    if (b.acao === "recupEmailSalvar") {
+      const e = String(b.email || "").trim();
+      if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, erro: "E-mail inválido." };
+      PropertiesService.getScriptProperties().setProperty("EMAIL_RECUP", e);
+      return { ok: true, config: config_() };
+    }
     if (b.acao === "senhaTrocar") {
       const nova = String(b.nova || "");
       if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
-      PropertiesService.getScriptProperties().setProperty("SENHA_SUPERVISOR", nova);
-      return { ok: true };
+      if (nova === senhaAtual) return { ok: false, erro: "A nova senha precisa ser diferente da atual." };
+      definirSenha_(nova);
+      return { ok: true, senhaInfo: estadoSenha_() };
     }
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
@@ -380,6 +457,12 @@ function emailDiario(teste) {
         const oc = rs.some(r => String(r.ocor || "").trim());
         return '<tr><td style="padding:4px 10px 4px 0">' + nomeObra(o) + '</td><td align="right" style="padding:4px 10px">' + ef + '</td><td style="padding:4px 10px">' + (oc ? '<b style="color:#B42318">Sim</b>' : "-") + '</td></tr>';
       }).join("") + '</table>';
+  }
+  const est = estadoSenha_();
+  if (est.diasRestantes <= DIAS_AVISO_SENHA) {
+    html += '<p style="background:#FEF3E2;border:1px solid #B54708;padding:10px 12px;color:#7A2E0E">🔒 ' +
+      (est.vencida ? 'A senha do Painel do Supervisor <b>venceu</b>. Entre no painel e crie uma nova senha para voltar a ver os dados.'
+        : 'A senha do Painel do Supervisor vence em <b>' + est.diasRestantes + ' dia' + (est.diasRestantes > 1 ? 's' : '') + '</b> (troca obrigatória a cada 3 meses). Troque pelo painel, na seção "Senha do painel".') + '</p>';
   }
   html += '<p style="margin-top:18px"><a href="' + painel + '" style="color:#0073A8">Abrir o Painel do Supervisor</a></p>' +
     '<p style="font-size:12px;color:#606060">Aviso automático enviado todo dia, de segunda a sábado, sobre o dia anterior. Para mudar os destinatários ou o horário, use o painel.</p></div>';

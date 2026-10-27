@@ -63,7 +63,66 @@ async function entrar(){
     }
     try{sessionStorage.setItem("sup-senha",senha);}catch(e){}
     $("v-login").hidden=true;$("v-painel").hidden=false;msg("msg-login","");
-  }catch(e){msg("msg-login",e.message==="senha incorreta"?"Senha incorreta.":"Não consegui abrir: "+e.message,true);}
+  }catch(e){
+    if(e.message==="senha vencida"){msg("msg-login","");$("f-vencida").hidden=false;$("v-nova").focus();return;}
+    msg("msg-login",e.message==="senha incorreta"?"Senha incorreta.":"Não consegui abrir: "+e.message,true);
+  }
+}
+// senha vencida: cria a nova e entra
+$("f-vencida").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const nova=$("v-nova").value,conf=$("v-conf").value;
+  if(nova.length<6){msg("msg-login","A nova senha precisa ter pelo menos 6 caracteres.",true);return;}
+  if(nova!==conf){msg("msg-login","As duas senhas não são iguais.",true);return;}
+  if(nova===senha){msg("msg-login","A nova senha precisa ser diferente da atual.",true);return;}
+  const b=$("b-vencida");b.disabled=true;msg("msg-login","Trocando a senha…");
+  try{
+    await enviar({acao:"senhaTrocar",nova});
+    senha=nova;$("senha").value=nova;$("v-nova").value="";$("v-conf").value="";$("f-vencida").hidden=true;
+    await entrar();
+  }catch(err){msg("msg-login","Não consegui trocar: "+err.message,true);}
+  finally{b.disabled=false;}
+});
+/* ---------- esqueci a senha ---------- */
+async function semSenha(corpo){
+  const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(corpo)});
+  const j=await r.json();if(!j.ok)throw new Error(j.erro||"falha");return j;
+}
+$("b-esqueci").onclick=()=>{$("recup").hidden=!$("recup").hidden;msg("msg-login","");};
+$("b-recup-pedir").onclick=async()=>{
+  const b=$("b-recup-pedir");b.disabled=true;msg("msg-login","Enviando o código…");
+  try{
+    const j=await semSenha({acao:"recuperarPedir"});
+    msg("msg-login",(j.jaEnviado?"Um código já foi enviado há pouco para ":"Código enviado para ")+j.para+". Confira também o spam.");
+    $("f-recup").hidden=false;$("r-cod").focus();
+  }catch(e){msg("msg-login","Não consegui enviar o código: "+e.message,true);}
+  finally{setTimeout(()=>{b.disabled=false;},30000);}
+};
+$("f-recup").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const codigo=$("r-cod").value.trim(),nova=$("r-nova").value,conf=$("r-conf").value;
+  if(!/^\d{6}$/.test(codigo)){msg("msg-login","Digite o código de 6 números do e-mail.",true);return;}
+  if(nova.length<6){msg("msg-login","A nova senha precisa ter pelo menos 6 caracteres.",true);return;}
+  if(nova!==conf){msg("msg-login","As duas senhas não são iguais.",true);return;}
+  const b=$("b-recup-ok");b.disabled=true;msg("msg-login","Criando a nova senha…");
+  try{
+    await semSenha({acao:"recuperarConfirmar",codigo,nova});
+    $("r-cod").value="";$("r-nova").value="";$("r-conf").value="";$("f-recup").hidden=true;$("recup").hidden=true;
+    $("senha").value=nova;await entrar();
+  }catch(err){msg("msg-login",err.message,true);}
+  finally{b.disabled=false;}
+});
+
+function fmtDataHora(iso){try{return new Date(iso).toLocaleDateString("pt-BR");}catch(e){return"";}}
+function mostrarSenhaInfo(i){
+  if(!i)return;
+  const av=$("aviso-senha");
+  if(i.diasRestantes<=i.avisoDias){
+    av.hidden=false;
+    av.innerHTML=`🔒 A senha do painel vence em <b>${i.diasRestantes} dia${i.diasRestantes>1?"s":""}</b> (${fmtDataHora(i.venceEm)}). <button type="button" class="linkbtn" id="ir-senha">Trocar agora</button>`;
+    $("ir-senha").onclick=()=>{$("c-senha").scrollIntoView({behavior:"smooth"});$("s-nova").focus();};
+  }else av.hidden=true;
+  $("senha-status").innerHTML=`Última troca: <b>${fmtDataHora(i.trocadaEm)}</b> · vence em <b>${fmtDataHora(i.venceEm)}</b> (${i.diasRestantes} dias)`;
 }
 $("b-entrar").onclick=entrar;
 $("senha").addEventListener("keydown",e=>{if(e.key==="Enter")entrar();});
@@ -73,6 +132,7 @@ async function carregar(){
   const j=await chamar({acao:"listar"});
   todos=(j.rdos||[]).map(r=>({...r,data:dataStr(r.data),total:num(r.total)})).filter(r=>r.data);
   montarCanon(todos);
+  mostrarSenhaInfo(j.senhaInfo);
   planilha=j.planilha||"";
   if(planilha){$("link-planilha").href=planilha;$("link-planilha").hidden=false;}
   $("atualizado").textContent="Atualizado às "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "+todos.length+" RDOs na central";
@@ -118,8 +178,9 @@ $("f-senha").addEventListener("submit",async e=>{
   if(nova===senha){msg("msg-senha","A nova senha é igual à atual.",true);return;}
   const b=$("b-senha");b.disabled=true;msg("msg-senha","Trocando…");
   try{
-    await enviar({acao:"senhaTrocar",nova});
+    const r=await enviar({acao:"senhaTrocar",nova});
     senha=nova;try{sessionStorage.setItem("sup-senha",nova);}catch(err){}
+    mostrarSenhaInfo(r.senhaInfo);
     $("s-nova").value="";$("s-conf").value="";
     msg("msg-senha","Senha trocada. Use a nova senha nos próximos acessos.");
   }catch(err){msg("msg-senha","Não consegui trocar: "+err.message,true);}
@@ -128,7 +189,17 @@ $("f-senha").addEventListener("submit",async e=>{
 
 /* ---------- aviso diário por e-mail ---------- */
 (function(){const s=$("a-hora");for(let h=5;h<=12;h++)s.insertAdjacentHTML("beforeend",`<option value="${h}">${String(h).padStart(2,"0")}:00</option>`);s.value="7";})();
+function mostrarRecup(c){
+  $("re-email").value=c.recupEmail||"";
+  $("recup-status").innerHTML="Se esquecer a senha, o código de recuperação vai para <b>"+esc(c.recupEmail||c.recupPadrao||"")+"</b>"+(c.recupEmail?"":" (conta dona da central)")+".";
+}
+$("f-recup-email").addEventListener("submit",async e=>{
+  e.preventDefault();msg("msg-senha","Salvando…");
+  try{const j=await enviar({acao:"recupEmailSalvar",email:$("re-email").value.trim()});mostrarRecup(j.config||{});msg("msg-senha","E-mail de recuperação salvo.");}
+  catch(err){msg("msg-senha","Não consegui salvar: "+err.message,true);}
+});
 function mostrarAviso(c){
+  mostrarRecup(c);
   $("a-emails").value=c.emails||"";$("a-hora").value=String(c.hora||7);
   $("aviso-status").innerHTML=c.ativo&&c.emails?`<span class="pill ok">✓ Ativo</span> todo dia às ${String(c.hora).padStart(2,"0")}:00 para ${esc(c.emails)}`:'<span class="pill">Desligado</span> cadastre pelo menos um e-mail e salve.';
 }
