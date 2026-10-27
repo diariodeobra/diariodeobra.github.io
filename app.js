@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 20:30";
+const VERSAO="27/10/2026 21:00";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -32,7 +32,7 @@ const dbPut=r=>tx("registros","readwrite",s=>{s.put(r);});
 const dbDel=id=>tx("registros","readwrite",s=>{s.delete(id);});
 const draftGet=()=>tx("rascunho","readonly",s=>s.get("atual"));
 const draftPut=d=>tx("rascunho","readwrite",s=>{s.put(d,"atual");});
-async function carregar(){try{registros=await dbAll()||[];}catch(e){registros=[];}montarCanon(registros);render();}
+async function carregar(){try{registros=await dbAll()||[];}catch(e){registros=[];}await limparAntigos();montarCanon(registros);render();}
 
 /* ---------- utilidades ---------- */
 function hoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
@@ -63,7 +63,15 @@ function montarCanon(lista){
   canon={};Object.entries(g).forEach(([k,x])=>canon[k]={idobra:x.id,obra:top(x.nomes),local:top(x.locais)});
 }
 function obraNome(r){const c=canon[obraChave(r)]||r;return [c.idobra,c.obra].filter(Boolean).join(" - ")+(c.local?" / "+c.local:"");}
-function proxRdo(ref){const k=obraChave(ref);const n=registros.filter(r=>obraChave(r)===k&&r._id!==editId).map(r=>parseInt(r.rdo)||0);return n.length?Math.max(...n)+1:1;}
+function lerContadores(){try{return JSON.parse(localStorage.getItem("rdo-contadores")||"{}");}catch(e){return {};}}
+function gravarContador(ref){try{const c=lerContadores(),k=obraChave(ref),n=parseInt(ref.rdo)||0;if(n>(c[k]||0)){c[k]=n;localStorage.setItem("rdo-contadores",JSON.stringify(c));}}catch(e){}}
+// próximo nº: maior entre os RDOs do celular, o último usado aqui e o último que chegou à central
+function proxRdo(ref){
+  const k=obraChave(ref);
+  const n=registros.filter(r=>obraChave(r)===k&&r._id!==editId).map(r=>parseInt(r.rdo)||0);
+  const central=(listaObras.find(o=>obraChave({idobra:o.id,obra:o.obra})===k)||{}).ultimoRdo||0;
+  return Math.max(0,...n,lerContadores()[k]||0,parseInt(central)||0)+1;
+}
 function abrirWa(t){location.href="https://wa.me/?text="+encodeURIComponent(t);}
 function baixarArquivo(blob,nome){const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);}
 
@@ -157,14 +165,60 @@ $("fotos").addEventListener("click",e=>{
   fotos.splice(i,1);renderFotos();update();
 });
 
+/* ---------- regras do histórico ---------- */
+const PRAZO_MS=48*3600*1000;   // histórico e edição: 48 horas
+function criadoEm(r){
+  if(r.criadoEm)return new Date(r.criadoEm).getTime();
+  const m=/^rdo-(\d{12,})/.exec(r._id||"");if(m)return +m[1];
+  return new Date(r.salvoEm||Date.now()).getTime();
+}
+const dentroPrazo=r=>Date.now()-criadoEm(r)<=PRAZO_MS;
+function lerPerfil(){try{return localStorage.getItem("resp-celular")||"";}catch(e){return "";}}
+function gravarPerfil(n){try{if(n)localStorage.setItem("resp-celular",n);else localStorage.removeItem("resp-celular");}catch(e){}}
+const doResponsavel=r=>{const p=lerPerfil();return !p||norm(r.resp)===norm(p);};
+const podeEditar=r=>dentroPrazo(r)&&doResponsavel(r);
+function motivoBloqueio(r){
+  if(!doResponsavel(r))return "Registro de outro responsável";
+  if(!dentroPrazo(r))return "Edição encerrada (48 h)";
+  return "";
+}
+// responsável fixo neste celular
+function aplicarPerfil(){
+  const p=lerPerfil(),i=$("resp");
+  if(p){i.value=p;i.readOnly=true;}else i.readOnly=false;
+  $("perfil-info").hidden=!p;
+  if(p)$("perfil-nome").textContent=p;
+}
+let confirmaTroca=false;
+$("b-trocar-resp").onclick=()=>{
+  if(!confirmaTroca){confirmaTroca=true;$("b-trocar-resp").textContent="Toque de novo para trocar";setTimeout(()=>{confirmaTroca=false;$("b-trocar-resp").textContent="Trocar responsável";},4000);return;}
+  confirmaTroca=false;gravarPerfil("");$("resp").value="";aplicarPerfil();render();$("resp").focus();
+  msg("Digite o nome do novo responsável. Ele fica gravado neste celular no próximo RDO salvo.");
+};
+// apaga do celular os RDOs com mais de 48 h que já estão na central
+async function limparAntigos(){
+  if(!temCentral())return;
+  const velhos=registros.filter(r=>!dentroPrazo(r)&&r.central==="ok"&&r.centralPdf==="ok");
+  for(const r of velhos){try{await dbDel(r._id);}catch(e){}}
+  if(velhos.length){registros=registros.filter(r=>!velhos.includes(r));}
+}
+
 /* ---------- salvar ---------- */
 async function salvar(){
   const r=lerForm();
+  if(editId){
+    const atual=registros.find(x=>x._id===editId);
+    if(atual&&!podeEditar(atual))throw new Error(motivoBloqueio(atual)+". Este RDO não pode mais ser alterado neste celular.");
+  }
+  if(!lerPerfil()&&r.resp)gravarPerfil(r.resp.trim());
   if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}
   const id=editId||("rdo-"+Date.now());
-  const reg={...r,_id:id,salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente"};
+  const antigo=editId?registros.find(x=>x._id===editId):null;
+  const reg={...r,_id:id,criadoEm:antigo?(antigo.criadoEm||new Date(criadoEm(antigo)).toISOString()):new Date().toISOString(),salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente"};
   await dbPut(reg);
+  gravarContador(reg);
   await carregar();
+  aplicarPerfil();
   sincronizar();
   return reg;
 }
@@ -553,7 +607,7 @@ function render(){
   $("hist-n").textContent=registros.length?"("+registros.length+")":"";
   thumbUrls.forEach(u=>URL.revokeObjectURL(u));thumbUrls=[];
   const lst=filtrados(false);
-  if(!lst.length){$("lista").innerHTML='<div class="empty">Nenhum RDO salvo neste celular ainda. Preencha a aba <b>Novo registro</b>; os diários aparecem aqui, do mais recente para o mais antigo.</div>';return;}
+  if(!lst.length){$("lista").innerHTML='<div class="empty">Nenhum RDO nas últimas 48 horas. Preencha a aba <b>Novo registro</b>; os diários aparecem aqui, do mais recente para o mais antigo.</div>';return;}
   $("lista").innerHTML=lst.map(r=>{
     const fs=(r.fotos||[]).filter(f=>f&&f.blob);
     const th=fs.map((f,i)=>{const u=URL.createObjectURL(f.blob);thumbUrls.push(u);return `<figure><img src="${u}" alt="Foto ${i+1}" loading="lazy"><figcaption>${esc(f.desc||"Foto "+(i+1))}</figcaption></figure>`;}).join("");
@@ -567,9 +621,10 @@ function render(){
       <div class="tools">
         <button class="btn wa" data-a="wa" data-f="pdf" data-id="${esc(r._id)}">Enviar PDF</button>
         <button class="btn wa" data-a="wa" data-f="docx" data-id="${esc(r._id)}">Enviar Word</button>
-        <button class="btn sec" data-a="ed" data-id="${esc(r._id)}">Editar</button>
-        <button class="btn sec" data-a="del" data-id="${esc(r._id)}">Excluir</button>
+        ${podeEditar(r)?`<button class="btn sec" data-a="ed" data-id="${esc(r._id)}">Editar</button>
+        <button class="btn sec" data-a="del" data-id="${esc(r._id)}">Excluir</button>`:""}
       </div>
+      ${podeEditar(r)?`<div class="status" style="text-align:left">Pode editar até ${esc(new Date(criadoEm(r)+PRAZO_MS).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</div>`:`<div><span class="pill">🔒 ${esc(motivoBloqueio(r))}</span></div>`}
     </article>`;}).join("");
 }
 $("fobra").onchange=render;
@@ -582,7 +637,8 @@ $("lista").addEventListener("click",async e=>{
     catch(err){msgExp("Não consegui gerar o arquivo ("+(err&&err.message||err)+").",true);}
     finally{b.disabled=false;b.textContent=lbl;}
   }
-  if(b.dataset.a==="ed"){preencher(r);editId=r._id;sincronizarSelecao(r.idobra);update();tab(false);window.scrollTo(0,0);msg("Editando o RDO "+(r.rdo||"")+". Salve para gravar as mudanças.");}
+  if((b.dataset.a==="ed"||b.dataset.a==="del")&&!podeEditar(r)){msgExp(motivoBloqueio(r)+".",true);render();return;}
+  if(b.dataset.a==="ed"){preencher(r);aplicarPerfil();editId=r._id;sincronizarSelecao(r.idobra);update();tab(false);window.scrollTo(0,0);msg("Editando o RDO "+(r.rdo||"")+". Salve para gravar as mudanças.");}
   if(b.dataset.a==="del"){
     if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Confirmar exclusão";b.style.color="var(--danger)";return;}
     await dbDel(r._id);await carregar();
@@ -649,8 +705,10 @@ $("versao").textContent="Versão "+VERSAO;
   try{const d=await draftGet();if(d){preencher(d);editId=d.editId||null;}}catch(e){}
   if(!$("data").value)$("data").value=hoje();
   paintClima();renderFotos();$("mtot").textContent=total(lerForm());
+  aplicarPerfil();
   await carregar();
   carregarListaObras();
+  setInterval(()=>{if(document.visibilityState==="visible")carregar();},10*60*1000);
   sincronizar();
 })();
 window.addEventListener("online",carregarListaObras);

@@ -233,7 +233,7 @@ function salvarPdf_(b) {
 function doGet(e) {
   const p = (e && e.parameter) || {};
   if (p.acao === "ping") return json_({ ok: true, app: "Diário de Obra ECTAS" });
-  if (p.acao === "obras" && p.chave === CHAVE_CAMPO) return json_({ ok: true, obras: listarObras_().filter(o => o.ativa) });
+  if (p.acao === "obras" && p.chave === CHAVE_CAMPO) return json_({ ok: true, obras: obrasParaCampo_() });
   const senhaAtual = prop_("SENHA_SUPERVISOR");
   if (!senhaAtual) {
     if (p.acao === "definirSenha" && String(p.nova || "").length >= 6) {
@@ -303,6 +303,17 @@ function listarObras_() {
     .filter(l => String(l[0]).trim() || String(l[1]).trim())
     .map(l => ({ id: String(l[0]).trim(), obra: String(l[1]).trim(), local: String(l[2]).trim(), ativa: !/^n/i.test(String(l[3]).trim()) }))
     .sort((a, b) => a.id.localeCompare(b.id, "pt", { numeric: true }));
+}
+
+// lista para o app de campo, com o último nº de RDO de cada obra (numeração contínua entre celulares)
+function obrasParaCampo_() {
+  const ultimo = {};
+  const sh = aba_(), n = sh.getLastRow();
+  if (n >= 2) sh.getRange(2, 3, n - 1, 5).getValues().forEach(l => {
+    const k = norm_(l[0]), r = parseInt(l[4], 10) || 0;
+    if (k && r > (ultimo[k] || 0)) ultimo[k] = r;
+  });
+  return listarObras_().filter(o => o.ativa).map(o => ({ ...o, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
 }
 
 function salvarObra_(o) {

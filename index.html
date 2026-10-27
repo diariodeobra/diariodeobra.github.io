@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <header class="band">
@@ -75,6 +75,7 @@
         <label>Nº do RDO<input id="rdo" type="number" min="1" inputmode="numeric" class="num" placeholder="auto"></label>
       </div>
       <label>Responsável pelo registro<input id="resp" required placeholder="Nome de quem preenche"></label>
+      <div class="status" id="perfil-info" hidden style="text-align:left">Responsável deste celular: <b id="perfil-nome"></b> · <button type="button" class="linkbtn" id="b-trocar-resp">Trocar responsável</button></div>
       <div class="row">
         <label>Início do expediente<input id="hini" type="time" value="07:00" class="num"></label>
         <label>Fim do expediente<input id="hfim" type="time" value="17:00" class="num"></label>
@@ -164,6 +165,7 @@
   </div>
   <div class="msg" id="msg-exp" role="status"></div>
   <div class="notice instalar" id="sync-st" hidden><span></span><button type="button" class="btn pri" id="b-sync">Enviar agora</button></div>
+  <p class="status" style="text-align:left;margin:0">O histórico mostra os RDOs das <b>últimas 48 horas</b>. Só o responsável pelo registro pode editar ou excluir, e só nesse prazo. Os RDOs mais antigos ficam guardados com o supervisor.</p>
   <div class="list" id="lista">
     <div class="empty">Nenhum RDO salvo neste celular ainda. Preencha a aba <b>Novo registro</b>; os diários aparecem aqui, do mais recente para o mais antigo.</div>
   </div>
@@ -172,6 +174,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=12"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
