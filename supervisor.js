@@ -109,6 +109,23 @@ $("f-obra-form").addEventListener("submit",async e=>{
   finally{b.disabled=false;}
 });
 
+/* ---------- trocar senha ---------- */
+$("f-senha").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const nova=$("s-nova").value,conf=$("s-conf").value;
+  if(nova.length<6){msg("msg-senha","A nova senha precisa ter pelo menos 6 caracteres.",true);return;}
+  if(nova!==conf){msg("msg-senha","As duas senhas não são iguais.",true);return;}
+  if(nova===senha){msg("msg-senha","A nova senha é igual à atual.",true);return;}
+  const b=$("b-senha");b.disabled=true;msg("msg-senha","Trocando…");
+  try{
+    await enviar({acao:"senhaTrocar",nova});
+    senha=nova;try{sessionStorage.setItem("sup-senha",nova);}catch(err){}
+    $("s-nova").value="";$("s-conf").value="";
+    msg("msg-senha","Senha trocada. Use a nova senha nos próximos acessos.");
+  }catch(err){msg("msg-senha","Não consegui trocar: "+err.message,true);}
+  finally{b.disabled=false;}
+});
+
 /* ---------- aviso diário por e-mail ---------- */
 (function(){const s=$("a-hora");for(let h=5;h<=12;h++)s.insertAdjacentHTML("beforeend",`<option value="${h}">${String(h).padStart(2,"0")}:00</option>`);s.value="7";})();
 function mostrarAviso(c){

@@ -323,6 +323,12 @@ function acaoSupervisor_(b) {
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);
+    if (b.acao === "senhaTrocar") {
+      const nova = String(b.nova || "");
+      if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+      PropertiesService.getScriptProperties().setProperty("SENHA_SUPERVISOR", nova);
+      return { ok: true };
+    }
     return { ok: false, erro: "ação desconhecida" };
   } finally { lock.releaseLock(); }
 }

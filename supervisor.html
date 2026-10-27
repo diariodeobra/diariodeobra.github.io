@@ -152,6 +152,17 @@ tbody tr:hover{background:var(--chip)}
       <div class="status" id="aviso-status" style="text-align:left"></div>
       <div class="msg" id="msg-aviso" role="status"></div>
     </section>
+
+    <section class="card" id="c-senha">
+      <h2>Senha do painel</h2>
+      <p class="status" style="text-align:left;margin:0">Troque a senha quando alguém deixar de ter acesso ou se ela tiver sido compartilhada. Quem estiver com o painel aberto em outro aparelho precisará entrar de novo.</p>
+      <form class="filtros" id="f-senha" autocomplete="off">
+        <label>Nova senha<input id="s-nova" type="password" autocomplete="new-password" minlength="6"></label>
+        <label>Repita a nova senha<input id="s-conf" type="password" autocomplete="new-password" minlength="6"></label>
+        <button type="submit" class="btn pri" id="b-senha">Trocar senha</button>
+      </form>
+      <div class="msg" id="msg-senha" role="status"></div>
+    </section>
   </div>
 </div>
 </main>
@@ -159,6 +170,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=12"></script>
+<script src="supervisor.js?v=13"></script>
 </body>
 </html>
