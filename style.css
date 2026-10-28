@@ -121,3 +121,11 @@ header .wrap{position:relative}
 .login-app label.chk-lembrar{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;text-align:left}
 .login-app label.chk-lembrar input{width:22px;height:22px;min-height:0;padding:0;margin:0}
 .recusado{font-size:.85rem;color:#B3261E;line-height:1.4}
+.ass-box{position:relative;border:1.5px dashed var(--line);border-radius:10px;background:#fff;height:170px;touch-action:none}
+.ass-box canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.ass-dica{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;color:#9AA5AE;font-size:.95rem;pointer-events:none}
+.ass-box.err{border-color:#B3261E}
+.ass-nome{display:flex;flex-direction:column;align-items:center;border-top:1px solid var(--fg);margin:0 12%;padding-top:4px;text-align:center}
+.ass-nome b{font-size:.95rem}
+.ass-nome span{font-size:.78rem;color:var(--muted)}
+#b-copiar{white-space:normal;text-align:left}

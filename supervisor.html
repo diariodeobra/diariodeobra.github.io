@@ -191,6 +191,17 @@ tbody tr:hover{background:var(--chip)}
       <div class="msg" id="msg-aviso" role="status"></div>
     </section>
 
+    <section class="card" id="c-backup">
+      <h2>Cópia de segurança</h2>
+      <p class="status" style="text-align:left;margin:0">Toda segunda-feira, às 3h, a central guarda uma cópia completa da planilha numa pasta do Drive. Ficam as 12 cópias mais recentes (cerca de 3 meses).</p>
+      <div class="filtros">
+        <button type="button" class="btn sec" id="b-backup">Fazer cópia agora</button>
+        <a id="link-backup" href="#" target="_blank" rel="noopener" hidden>Abrir pasta de cópias</a>
+      </div>
+      <div class="status" id="backup-status" style="text-align:left"></div>
+      <div class="msg" id="msg-backup" role="status"></div>
+    </section>
+
     <section class="card" id="c-senha">
       <h2>Senha do painel</h2>
       <div class="status" id="senha-status" style="text-align:left"></div>
@@ -214,6 +225,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=19"></script>
+<script src="supervisor.js?v=20"></script>
 </body>
 </html>

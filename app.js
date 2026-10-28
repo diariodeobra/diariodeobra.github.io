@@ -1,12 +1,12 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 21:40";
+const VERSAO="27/10/2026 22:10";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
 const FIELDS=["idobra","obra","local","data","rdo","resp","hini","hfim","ativ","equip","mat","ocor","obs",...MO.map(m=>m[0])];
 const clima={manha:"",tarde:""};
-let registros=[], editId=null, fotos=[], envio=null;
+let registros=[], editId=null, fotos=[], envio=null, assinatura="";
 
 /* ---------- banco local (IndexedDB) ---------- */
 let dbp=null;
@@ -86,6 +86,7 @@ function lerForm(){
   const r={};FIELDS.forEach(f=>r[f]=$(f).value.trim());
   r.clima_manha=clima.manha;r.clima_tarde=clima.tarde;
   r.fotos=fotos.map(f=>({blob:f.blob,desc:(f.desc||"").trim()}));
+  r.assinatura=assinatura||"";
   return r;
 }
 function preencher(r){
@@ -94,10 +95,11 @@ function preencher(r){
   clima.manha=r.clima_manha||"";clima.tarde=r.clima_tarde||"";
   fotos=(r.fotos||[]).filter(f=>f&&f.blob).map(f=>({blob:f.blob,desc:f.desc||"",url:URL.createObjectURL(f.blob)}));
   paintClima();renderFotos();
+  definirAssinatura(r.assinatura||"");
 }
 let tSalvar=null;
 function update(){
-  $("mtot").textContent=total(lerForm());
+  $("mtot").textContent=total(lerForm());mostrarBotaoCopiar();
   clearTimeout(tSalvar);tSalvar=setTimeout(()=>{draftPut({...lerForm(),editId}).catch(()=>{});},400);
 }
 function validar(){
@@ -109,6 +111,7 @@ function validar(){
   if(!$("resp").value.trim())falta.push("responsável");
   if(!$("ativ").value.trim())falta.push("atividades executadas");
   if(falta.length){msg("Preencha: "+falta.join(", ")+".",true);return false;}
+  if(!assinatura){msg("Assine o RDO no campo Assinatura do encarregado (no fim do formulário).",true);$("ass-box").classList.add("err");$("ass-box").scrollIntoView({behavior:"smooth",block:"center"});return false;}
   const dup=rdoDoDiaLocal($("idobra").value,$("data").value,editId);
   if(dup){msg("Já existe o RDO nº "+(dup.rdo||"-")+" desta obra em "+fmtData(dup.data)+" ("+(dup.resp||"")+"), salvo neste celular. Só pode haver um RDO por obra em cada dia. Para corrigir, edite o RDO existente no Histórico.",true);$("data").focus();return false;}
   return true;
@@ -127,7 +130,7 @@ async function verificarDiaCentral(r,uid){
 }
 function limpar(){
   FIELDS.forEach(f=>{if(!["resp","idobra","obra","local","hini","hfim"].includes(f))$(f).value="";});
-  $("data").value=hoje();clima.manha="";clima.tarde="";editId=null;fotos=[];renderFotos();paintClima();update();
+  $("data").value=hoje();clima.manha="";clima.tarde="";editId=null;fotos=[];renderFotos();paintClima();definirAssinatura("");update();
 }
 $("f").addEventListener("input",update);
 $("idobra").addEventListener("change",()=>{
@@ -202,6 +205,7 @@ function motivoBloqueio(r){
   return "";
 }
 function aplicarPerfil(){
+  if(typeof nomeAssinatura==="function")nomeAssinatura();
   const s=lerSessao(),i=$("resp");
   i.value=s?s.nome:"";i.readOnly=true;
   $("perfil-info").hidden=!s;$("b-sair-top").hidden=!s||!$("v-entrar").hidden;
@@ -383,6 +387,81 @@ async function salvar(){
   return reg;
 }
 
+/* ---------- assinatura do encarregado (com o dedo) ---------- */
+const assCv=$("ass-canvas");
+let assCtx=null,assDesenhando=false,assUlt=null,assTracos=0;
+function assPreparar(){
+  const box=$("ass-box"),d=window.devicePixelRatio||1,w=box.clientWidth,h=box.clientHeight;
+  if(!w||!h)return;
+  if(assCv.width===Math.round(w*d)&&assCv.height===Math.round(h*d)&&assCtx)return;
+  assCv.width=Math.round(w*d);assCv.height=Math.round(h*d);
+  assCtx=assCv.getContext("2d");assCtx.setTransform(d,0,0,d,0,0);
+  assCtx.lineCap="round";assCtx.lineJoin="round";assCtx.strokeStyle="#0B2545";assCtx.lineWidth=2.4;
+  if(assinatura)assDesenharImagem(assinatura);
+}
+function assDesenharImagem(src){
+  const img=new Image();img.onload=()=>{if(!assCtx)return;const w=assCv.clientWidth,h=assCv.clientHeight,s=Math.min(w/img.width,h/img.height);
+    assCtx.clearRect(0,0,w,h);assCtx.drawImage(img,(w-img.width*s)/2,(h-img.height*s)/2,img.width*s,img.height*s);};img.src=src;
+}
+function definirAssinatura(src){
+  assinatura=src||"";assTracos=0;
+  if(!assCtx)assPreparar();
+  if(assCtx)assCtx.clearRect(0,0,assCv.width,assCv.height);
+  if(assinatura)assDesenharImagem(assinatura);
+  $("ass-dica").hidden=!!assinatura;$("ass-box").classList.remove("err");
+}
+function assPos(e){const r=assCv.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+assCv.addEventListener("pointerdown",e=>{
+  assPreparar();if(!assCtx)return;
+  e.preventDefault();assCv.setPointerCapture(e.pointerId);assDesenhando=true;assUlt=assPos(e);
+  assCtx.beginPath();assCtx.arc(assUlt.x,assUlt.y,1.1,0,Math.PI*2);assCtx.fillStyle="#0B2545";assCtx.fill();
+  $("ass-dica").hidden=true;$("ass-box").classList.remove("err");
+});
+assCv.addEventListener("pointermove",e=>{
+  if(!assDesenhando)return;e.preventDefault();
+  const p=assPos(e);assCtx.beginPath();assCtx.moveTo(assUlt.x,assUlt.y);assCtx.lineTo(p.x,p.y);assCtx.stroke();assUlt=p;assTracos++;
+});
+function assFim(){
+  if(!assDesenhando)return;assDesenhando=false;
+  assinatura=assExportar();update();
+}
+assCv.addEventListener("pointerup",assFim);assCv.addEventListener("pointercancel",assFim);
+// exporta só a área assinada, com fundo transparente
+function assExportar(){
+  const w=assCv.width,h=assCv.height,px=assCtx.getImageData(0,0,w,h).data;
+  let x0=w,y0=h,x1=-1,y1=-1;
+  for(let y=0;y<h;y+=2)for(let x=0;x<w;x+=2){if(px[(y*w+x)*4+3]>20){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}}
+  if(x1<0)return "";
+  const m=12;x0=Math.max(0,x0-m);y0=Math.max(0,y0-m);x1=Math.min(w,x1+m);y1=Math.min(h,y1+m);
+  const c=document.createElement("canvas");c.width=x1-x0;c.height=y1-y0;c.getContext("2d").drawImage(assCv,x0,y0,c.width,c.height,0,0,c.width,c.height);
+  return c.toDataURL("image/png");
+}
+$("b-ass-limpar").onclick=()=>{definirAssinatura("");update();};
+addEventListener("resize",()=>{assCtx=null;assPreparar();});
+new ResizeObserver(()=>{if(!assDesenhando)assPreparar();}).observe($("ass-box"));
+function nomeAssinatura(){$("ass-nome").textContent=(lerSessao()||{}).nome||"—";}
+
+/* ---------- copiar horário, efetivo e equipamentos do último RDO da obra ---------- */
+function mostrarBotaoCopiar(){$("b-copiar").hidden=!$("idobra").value.trim()||!!editId;}
+$("b-copiar").onclick=async()=>{
+  const id=$("idobra").value.trim(),data=$("data").value||hoje();if(!id)return;
+  const b=$("b-copiar"),lbl=b.textContent;b.disabled=true;b.textContent="Procurando o último RDO…";
+  try{
+    // primeiro no celular; se não houver, na central
+    let base=registros.filter(x=>norm(x.idobra)===norm(id)&&x.data<data).sort((a,c)=>a.data<c.data?1:a.data>c.data?-1:criadoEm(c)-criadoEm(a))[0]||null;
+    let origem="neste celular";
+    if(!base&&temCentral()&&navigator.onLine&&lerSessao()){
+      try{const res=await postCentral({acao:"ultimoRdo",idobra:id,antesDe:data});base=res.rdo;origem="na central";}catch(e){}
+    }
+    if(!base){msg("Não encontrei RDO anterior desta obra para copiar.",true);return;}
+    if(base.hini)$("hini").value=base.hini;if(base.hfim)$("hfim").value=base.hfim;
+    MO.forEach(([k])=>{$(k).value=parseInt(base[k])>0?String(parseInt(base[k])):"";});
+    if(base.equip)$("equip").value=base.equip;
+    update();
+    msg("Copiado do RDO nº "+(base.rdo||"-")+" de "+fmtData(base.data)+" ("+origem+"): horário, efetivo e equipamentos. Confira e ajuste o que mudou.");
+  }finally{b.disabled=false;b.textContent=lbl;}
+};
+
 /* ---------- lista fixa de obras (cadastrada pelo supervisor) ---------- */
 let listaObras=[];
 function lerListaLocal(){try{return JSON.parse(localStorage.getItem("obras-lista")||"[]");}catch(e){return [];}}
@@ -410,7 +489,7 @@ $("selobra").addEventListener("change",()=>{
   const o=listaObras.find(x=>x.id===$("selobra").value);
   if(o){$("idobra").value=o.id;$("obra").value=o.obra;$("local").value=o.local||"";}
   else if(!$("selobra").value){$("idobra").value="";$("obra").value="";$("local").value="";}
-  mostrarObraInfo();update();
+  mostrarObraInfo();mostrarBotaoCopiar();update();
 });
 async function carregarListaObras(){
   aplicarListaObras(lerListaLocal());
@@ -573,9 +652,15 @@ async function gerarPdf(lst){
         if(col===1||i===fs.length-1)y+=fh+16;
       }
     }
-    espaco(22,r);y+=10;
+    espaco(42,r);y+=24;
+    if(r.assinatura){
+      try{const [aw,ah]=await dims(r.assinatura);const s=Math.min(70/aw,22/ah);
+        doc.addImage(r.assinatura,"PNG",M+(75-aw*s)/2,y-1-ah*s,aw*s,ah*s);}catch(e){}
+    }
     doc.setDrawColor(...CZ);doc.setLineWidth(.3);doc.line(M,y,M+75,y);doc.line(W-M-75,y,W-M,y);
-    doc.setFontSize(8);doc.setTextColor(...CZ);doc.text("Responsável pela obra",M,y+4);doc.text("Fiscalização",W-M-75,y+4);
+    doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(...TX);doc.text(r.resp||"",M+37.5,y+4.5,{align:"center"});
+    doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(...CZ);
+    doc.text("Responsável pela obra (encarregado)",M+37.5,y+8.5,{align:"center"});doc.text("Fiscalização",W-M-37.5,y+4.5,{align:"center"});
     rodape();
   }
   return doc.output("blob");
@@ -644,8 +729,16 @@ async function gerarDocx(r){
     corpo.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},borders:bordas0,rows}));
   }
   // assinaturas
-  const ass=txt=>new D.TableCell({borders:bordas0,children:[p(t(""),{before:500,after:0,border:{bottom:{color:CZ,space:1,style:D.BorderStyle.SINGLE,size:6}}}),p(t(txt,{color:CZ,size:16}))]});
-  corpo.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},borders:bordas0,rows:[new D.TableRow({cantSplit:true,children:[ass("Responsável pela obra"),new D.TableCell({borders:bordas0,children:[p(t(""))]}),ass("Fiscalização")]})]}));
+  const C=D.AlignmentType.CENTER;
+  const linhaAss=img=>img?new D.Paragraph({alignment:C,spacing:{before:200,after:0},border:{bottom:{color:CZ,space:1,style:D.BorderStyle.SINGLE,size:6}},children:[img]})
+    :p(t(""),{before:900,after:0,border:{bottom:{color:CZ,space:1,style:D.BorderStyle.SINGLE,size:6}}});
+  let imgAss=null;
+  if(r.assinatura){try{const [aw,ah]=await dims(r.assinatura),s=Math.min(240/aw,70/ah);
+    imgAss=new D.ImageRun({data:await (await fetch(r.assinatura)).arrayBuffer(),transformation:{width:Math.round(aw*s),height:Math.round(ah*s)}});}catch(e){}}
+  const cEnc=new D.TableCell({borders:bordas0,width:{size:45,type:D.WidthType.PERCENTAGE},children:[linhaAss(imgAss),
+    p(t(r.resp||"",{bold:true,size:18}),{align:C,after:0}),p(t("Responsável pela obra (encarregado)",{color:CZ,size:16}),{align:C})]});
+  const cFis=new D.TableCell({borders:bordas0,width:{size:45,type:D.WidthType.PERCENTAGE},children:[linhaAss(null),p(t("Fiscalização",{color:CZ,size:16}),{align:C})]});
+  corpo.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},borders:bordas0,rows:[new D.TableRow({cantSplit:true,children:[cEnc,new D.TableCell({borders:bordas0,width:{size:10,type:D.WidthType.PERCENTAGE},children:[p(t(""))]}),cFis]})]}));
   const doc=new D.Document({
     creator:"Diário de Obra ECTAS",title:"RDO "+(r.rdo||"")+" "+obraNome(r),
     styles:{default:{document:{run:{font:F,size:20}}}},

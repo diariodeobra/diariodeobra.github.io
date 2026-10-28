@@ -236,8 +236,20 @@ $("f-recup-email").addEventListener("submit",async e=>{
   try{const j=await enviar({acao:"recupEmailSalvar",email:$("re-email").value.trim()});mostrarRecup(j.config||{});msg("msg-senha","E-mail de recuperação salvo.");}
   catch(err){msg("msg-senha","Não consegui salvar: "+err.message,true);}
 });
+function mostrarBackup(b){
+  if(!b)return;
+  const q=b.ultimo?new Date(b.ultimo).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"";
+  $("backup-status").innerHTML=(b.ativo?'<span class="pill ok">✓ Automática ligada</span> ':'<span class="pill">Liga na próxima abertura do painel</span> ')+(q?"Última cópia: "+esc(q)+".":"Nenhuma cópia feita ainda.");
+  if(b.pasta){$("link-backup").href=b.pasta;$("link-backup").hidden=false;}
+}
+$("b-backup").onclick=async()=>{
+  const b=$("b-backup");b.disabled=true;msg("msg-backup","Copiando a planilha… pode levar alguns segundos.");
+  try{const j=await enviar({acao:"backupAgora"});mostrarBackup(j.backup);msg("msg-backup","Cópia feita.");}
+  catch(err){msg("msg-backup","Não consegui fazer a cópia: "+err.message,true);}
+  finally{b.disabled=false;}
+};
 function mostrarAviso(c){
-  mostrarRecup(c);
+  mostrarRecup(c);mostrarBackup(c.backup);
   $("a-emails").value=c.emails||"";$("a-hora").value=String(c.hora||7);
   $("aviso-status").innerHTML=c.ativo&&c.emails?`<span class="pill ok">✓ Ativo</span> todo dia às ${String(c.hora).padStart(2,"0")}:00 para ${esc(c.emails)}`:'<span class="pill">Desligado</span> cadastre pelo menos um e-mail e salve.';
 }

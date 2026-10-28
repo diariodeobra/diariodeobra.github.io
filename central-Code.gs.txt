@@ -146,6 +146,10 @@ function doPost(e) {
   lock.waitLock(20000);
   try {
     if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}, u));
+    if (body.acao === "ultimoRdo") {
+      if (!obraPermitida_(body.idobra, u)) return json_({ ok: false, erro: "Obra fora da sua lista." });
+      return json_({ ok: true, rdo: ultimoRdo_(body.idobra, limpa_(body.antesDe, 10)) });
+    }
     if (body.acao === "verificarDia") {
       const dup = rdoDoDia_(aba_(), body.idobra, body.data, limpa_(body.uid, 80));
       return json_({ ok: true, existe: dup ? { rdo: dup.rdo, resp: dup.resp, erro: msgDuplicado_(dup, body.idobra, body.data) } : null });
@@ -197,7 +201,7 @@ function salvarRdo_(r, u) {
   return { ok: true, uid: uid, novo: !antigo };
 }
 
-function dataTexto_(v) {
+function dataIso_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, "America/Sao_Paulo", "yyyy-MM-dd");
   const s = String(v == null ? "" : v).trim();
   const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
@@ -205,18 +209,35 @@ function dataTexto_(v) {
 }
 // procura outro RDO da mesma obra (pelo ID) na mesma data
 function rdoDoDia_(sh, idobra, data, uidIgnorar) {
-  const k = norm_(idobra), d = dataTexto_(data), n = sh.getLastRow();
+  const k = norm_(idobra), d = dataIso_(data), n = sh.getLastRow();
   if (!k || !d || n < 2) return null;
   const v = sh.getRange(2, 1, n - 1, 8).getValues();
   for (let i = 0; i < v.length; i++) {
     const l = v[i];
-    if (String(l[0]) !== String(uidIgnorar || "") && norm_(l[2]) === k && dataTexto_(l[5]) === d)
+    if (String(l[0]) !== String(uidIgnorar || "") && norm_(l[2]) === k && dataIso_(l[5]) === d)
       return { uid: String(l[0]), rdo: String(l[6]), resp: String(l[7]) };
   }
   return null;
 }
+// último RDO da obra (para o encarregado copiar horário, efetivo e equipamentos)
+function ultimoRdo_(idobra, antesDe) {
+  const sh = aba_(), n = sh.getLastRow(), k = norm_(idobra);
+  if (!k || n < 2) return null;
+  const v = sh.getRange(2, 1, n - 1, COLUNAS.length).getValues();
+  let best = null, bd = "";
+  v.forEach(l => {
+    const o = {}; COLUNAS.forEach((c, i) => o[c] = l[i]);
+    const d = dataIso_(o.data);
+    if (norm_(o.idobra) !== k || !d || (antesDe && d >= antesDe)) return;
+    if (!best || d >= bd) { best = o; bd = d; }
+  });
+  if (!best) return null;
+  const hm = x => x instanceof Date ? Utilities.formatDate(x, "America/Sao_Paulo", "HH:mm") : String(x || "").slice(0, 5);
+  return { rdo: String(best.rdo), data: bd, resp: String(best.resp), hini: hm(best.hini), hfim: hm(best.hfim),
+    m_lid: best.lider || 0, m_mon: best.montador || 0, m_aux: best.auxiliar || 0, m_out: best.outros || 0, equip: String(best.equip || "") };
+}
 function msgDuplicado_(dup, idobra, data) {
-  const d = dataTexto_(data).split("-").reverse().join("/");
+  const d = dataIso_(data).split("-").reverse().join("/");
   return "Já existe o RDO nº " + dup.rdo + " da obra " + limpa_(idobra, 40) + " em " + d + (dup.resp ? " (feito por " + dup.resp + ")" : "") +
     ". Só pode haver um RDO por obra em cada dia.";
 }
@@ -300,7 +321,7 @@ function doGet(e) {
     return json_({ ok: true, rdos: dados, planilha: planilha_().getUrl(), senhaInfo: est });
   }
   if (p.acao === "obrasTodas") return json_({ ok: true, obras: listarObras_(), usuarios: listarUsu_() });
-  if (p.acao === "config") return json_({ ok: true, config: config_() });
+  if (p.acao === "config") { try { garantirGatilhoBackup_(); } catch (e) { } return json_({ ok: true, config: config_() }); }
   if (p.acao === "foto") {
     try {
       const f = DriveApp.getFileById(p.id);
@@ -530,6 +551,35 @@ function recuperar_(b) {
 }
 
 /* ---------- Configurações e e-mail diário ---------- */
+/* ---------- cópia de segurança semanal da planilha ---------- */
+const PASTA_BACKUP = "Diário de Obra ECTAS - Backups";
+const BACKUPS_MANTER = 12;   // guarda as últimas 12 cópias (cerca de 3 meses)
+function backupSemanal() {
+  const ss = planilha_();
+  const pasta = pasta_(PASTA_BACKUP);
+  const nome = "Backup " + NOME_PLANILHA + " " + Utilities.formatDate(new Date(), "America/Sao_Paulo", "yyyy-MM-dd HH'h'mm");
+  DriveApp.getFileById(ss.getId()).makeCopy(nome, pasta);
+  // apaga as mais antigas (vão para a lixeira do Drive, recuperáveis por 30 dias)
+  const arqs = [];
+  const it = pasta.getFiles();
+  while (it.hasNext()) { const f = it.next(); if (f.getName().indexOf("Backup ") === 0) arqs.push(f); }
+  arqs.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  arqs.slice(BACKUPS_MANTER).forEach(f => f.setTrashed(true));
+  PropertiesService.getScriptProperties().setProperty("ULTIMO_BACKUP", new Date().toISOString());
+  return { ok: true, backup: infoBackup_() };
+}
+function garantirGatilhoBackup_() {
+  if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal")) return;
+  ScriptApp.newTrigger("backupSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).inTimezone("America/Sao_Paulo").create();
+}
+function infoBackup_() {
+  const pr = PropertiesService.getScriptProperties();
+  let url = pr.getProperty("PASTA_BACKUP_URL");
+  if (!url) { try { url = pasta_(PASTA_BACKUP).getUrl(); pr.setProperty("PASTA_BACKUP_URL", url); } catch (e) { url = ""; } }
+  return { ultimo: pr.getProperty("ULTIMO_BACKUP") || "", pasta: url,
+    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal") };
+}
+
 function config_() {
   const pr = PropertiesService.getScriptProperties();
   return {
@@ -537,7 +587,8 @@ function config_() {
     hora: parseInt(pr.getProperty("HORA_AVISO") || "7", 10),
     ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "emailDiario"),
     recupEmail: pr.getProperty("EMAIL_RECUP") || "",
-    recupPadrao: EMAIL_DONO
+    recupPadrao: EMAIL_DONO,
+    backup: infoBackup_()
   };
 }
 
@@ -563,6 +614,7 @@ function acaoSupervisor_(b) {
     if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);
+    if (b.acao === "backupAgora") { garantirGatilhoBackup_(); return backupSemanal(); }
     if (b.acao === "recupEmailSalvar") {
       const e = String(b.email || "").trim();
       if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, erro: "E-mail inválido." };
