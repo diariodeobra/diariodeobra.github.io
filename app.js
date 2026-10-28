@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 22:00";
+const VERSAO="27/10/2026 21:30";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -190,10 +190,11 @@ function motivoBloqueio(r){
 function aplicarPerfil(){
   const s=lerSessao(),i=$("resp");
   i.value=s?s.nome:"";i.readOnly=true;
-  $("perfil-info").hidden=!s;
+  $("perfil-info").hidden=!s;$("b-sair-top").hidden=!s||!$("v-entrar").hidden;
   if(s)$("perfil-nome").textContent=s.nome+" ("+s.usuario+")";
 }
 function mostrarLogin(motivo){
+  $("b-sair-top").hidden=true;modoBloqueio(false);
   $("v-entrar").hidden=false;["nav-tabs","v-novo","v-hist","v-painel"].forEach(id=>{const e=$(id);if(e)e.hidden=true;});
   try{if(!motivo&&localStorage.getItem("sessao-msg"))motivo=MSG_SESSAO;localStorage.removeItem("sessao-msg");}catch(e){}
   $("l-msg").textContent=motivo||"";$("l-msg").className="msg"+(motivo?" err":"");
@@ -204,13 +205,23 @@ $("f-entrar").addEventListener("submit",async e=>{
   e.preventDefault();
   const usuario=$("l-usuario").value.trim().toLowerCase(),senha=$("l-senha").value;
   if(!usuario||!senha){$("l-msg").textContent="Digite o usuário e a senha.";$("l-msg").className="msg err";return;}
+  if(bloqueado()&&!navigator.onLine){
+    // sem sinal: confere a senha com o registro guardado neste celular no último login
+    if(await senhaLocalOk(usuario,senha)){$("l-senha").value="";desbloquear();msg("App desbloqueado.");}
+    else{$("l-msg").textContent="Senha incorreta.";$("l-msg").className="msg err";$("l-senha").value="";}
+    return;
+  }
   if(!navigator.onLine){$("l-msg").textContent="Para entrar é preciso internet. Depois o app funciona sem sinal.";$("l-msg").className="msg err";return;}
   const b=$("b-entrar-app");b.disabled=true;$("l-msg").textContent="Entrando…";$("l-msg").className="msg";
   try{
     const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({acao:"login",usuario,senha,chave:CENTRAL.chave})});
     const res=await r.json();
     if(!res.ok)throw new Error(res.erro||"Não consegui entrar.");
+    const eraBloqueio=bloqueado();
     gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome});
+    await guardarSenhaLocal(usuario,senha);
+    ultimoUso=Date.now();try{localStorage.setItem("ultimo-uso",String(ultimoUso));}catch(err){}
+    if(eraBloqueio){$("l-senha").value="";desbloquear();msg("App desbloqueado.");carregarListaObras();sincronizar();return;}
     try{localStorage.setItem("ultimo-usuario",res.usuario.login);localStorage.removeItem("obras-lista");}catch(err){}
     $("l-senha").value="";esconderLogin();
     await carregar();carregarListaObras();sincronizar();
@@ -218,22 +229,74 @@ $("f-entrar").addEventListener("submit",async e=>{
   }catch(err){$("l-msg").textContent=err.message;$("l-msg").className="msg err";}
   finally{b.disabled=false;}
 });
-let confirmaSair=false;
-$("b-sair-app").onclick=()=>{
+let confirmaSair=false,tSair=null;
+function rotuloSair(t,alerta){["b-sair-app","b-sair-top"].forEach(id=>{$(id).textContent=t;});$("b-sair-top").classList.toggle("alerta",!!alerta);}
+function pedirSair(){
   const s=lerSessao();
   const pend=registros.filter(r=>r.central!=="ok"&&r.usuario===(s&&s.usuario)).length;
   if(!confirmaSair){
     confirmaSair=true;
-    $("b-sair-app").textContent=pend?"Há "+pend+" RDO(s) seus sem envio. Toque de novo para sair mesmo assim":"Toque de novo para sair";
-    setTimeout(()=>{confirmaSair=false;$("b-sair-app").textContent="Sair";},5000);return;
+    rotuloSair(pend?"Há "+pend+" RDO(s) seus sem envio. Toque de novo para sair":"Toque de novo para sair",true);
+    clearTimeout(tSair);tSair=setTimeout(()=>{confirmaSair=false;rotuloSair("Sair");},5000);return;
   }
-  confirmaSair=false;$("b-sair-app").textContent="Sair";
-  gravarSessao(null);try{localStorage.removeItem("obras-lista");}catch(e){}
-  aplicarListaObras([]);mostrarLogin("");
-};
+  confirmaSair=false;clearTimeout(tSair);rotuloSair("Sair");
+  sairApp();
+}
+function sairApp(){
+  gravarSessao(null);try{localStorage.removeItem("obras-lista");localStorage.removeItem("bloqueio");localStorage.removeItem("desbloq");}catch(e){}
+  aplicarListaObras([]);$("l-usuario").value="";mostrarLogin("");
+}
+$("b-sair-app").onclick=pedirSair;
+$("b-sair-top").onclick=pedirSair;
+$("l-outro").onclick=()=>{sairApp();$("l-usuario").focus();};
+/* ---------- bloqueio por inatividade: volta para a tela de senha ---------- */
+const INATIVO_MS=15*60*1000;
+let ultimoUso=Date.now();
+const bloqueado=()=>{try{return localStorage.getItem("bloqueio")==="1";}catch(e){return false;}};
+function marcarUso(){
+  if(bloqueado()||!lerSessao())return;
+  const t=Date.now();if(t-ultimoUso<5000)return;
+  ultimoUso=t;try{localStorage.setItem("ultimo-uso",String(t));}catch(e){}
+}
+["pointerdown","keydown","touchstart","scroll","input"].forEach(ev=>addEventListener(ev,marcarUso,{passive:true,capture:true}));
+function lerUltimoUso(){try{return Math.max(ultimoUso,+localStorage.getItem("ultimo-uso")||0);}catch(e){return ultimoUso;}}
+function verificarInatividade(){
+  if(!lerSessao()||bloqueado())return;
+  if(Date.now()-lerUltimoUso()>=INATIVO_MS)bloquearApp();
+}
+function modoBloqueio(on){
+  $("l-usuario").readOnly=on;$("l-outro-box").hidden=!on;
+  $("l-intro").textContent=on?"Por segurança, o app foi bloqueado após 15 minutos sem uso. Digite sua senha para continuar. O que você estava preenchendo não se perde.":"Use o usuário e a senha cadastrados pelo supervisor.";
+}
+function bloquearApp(){
+  const s=lerSessao();if(!s)return;
+  try{localStorage.setItem("bloqueio","1");}catch(e){}
+  draftPut({...lerForm(),editId}).catch(()=>{});
+  mostrarLogin("");modoBloqueio(true);
+  $("l-usuario").value=s.usuario;$("l-senha").value="";
+}
+function desbloquear(){
+  try{localStorage.removeItem("bloqueio");localStorage.setItem("ultimo-uso",String(Date.now()));}catch(e){}
+  ultimoUso=Date.now();modoBloqueio(false);esconderLogin();
+}
+setInterval(verificarInatividade,30*1000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")verificarInatividade();});
+// senha guardada só como resumo (hash com sal) para desbloquear sem internet
+async function resumoSenha(usuario,senha,sal){
+  const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(sal+"|"+usuario+"|"+senha));
+  return btoa(String.fromCharCode(...new Uint8Array(b)));
+}
+async function guardarSenhaLocal(usuario,senha){
+  try{const sal=crypto.getRandomValues(new Uint32Array(4)).join("-");
+    localStorage.setItem("desbloq",JSON.stringify({u:usuario,sal,h:await resumoSenha(usuario,senha,sal)}));}catch(e){}
+}
+async function senhaLocalOk(usuario,senha){
+  try{const d=JSON.parse(localStorage.getItem("desbloq")||"null");if(!d||d.u!==usuario)return false;
+    return (await resumoSenha(usuario,senha,d.sal))===d.h;}catch(e){return false;}
+}
 // sessão expirada ou usuário desativado/senha redefinida pelo supervisor
 const MSG_SESSAO="Sua sessão terminou (senha redefinida ou usuário alterado pelo supervisor). Entre novamente. Os RDOs salvos continuam no celular.";
-function sessaoInvalida(){gravarSessao(null);try{localStorage.setItem("sessao-msg","1");}catch(e){}mostrarLogin(MSG_SESSAO);}
+function sessaoInvalida(){gravarSessao(null);try{localStorage.removeItem("bloqueio");localStorage.removeItem("desbloq");}catch(e){}try{localStorage.setItem("sessao-msg","1");}catch(e){}mostrarLogin(MSG_SESSAO);}
 // apaga do celular os RDOs com mais de 48 h que já estão na central
 async function limparAntigos(){
   if(!temCentral())return;
@@ -755,6 +818,8 @@ $("versao").textContent="Versão "+VERSAO;
   aplicarPerfil();
   await carregar();
   if(!lerSessao())mostrarLogin("");
+  else if(bloqueado()||Date.now()-(+localStorage.getItem("ultimo-uso")||Date.now())>=INATIVO_MS)bloquearApp();
+  else{try{localStorage.setItem("ultimo-uso",String(Date.now()));}catch(e){}}
   carregarListaObras();
   setInterval(()=>{if(document.visibilityState==="visible")carregar();},10*60*1000);
   sincronizar();

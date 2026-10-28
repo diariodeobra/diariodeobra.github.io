@@ -11,12 +11,13 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 <header class="band">
   <div class="wrap">
     <div class="logo"><img id="logo" src="logo.png" alt="ECTAS Saneamento"></div>
+    <button type="button" class="btn-sair-top" id="b-sair-top" hidden>Sair</button>
     <div>
       <h1>Diário de Obra</h1>
       <p>Registro diário de obra (RDO) · envio em PDF pelo WhatsApp</p>
@@ -28,12 +29,13 @@
 <div class="wrap" id="v-entrar" hidden style="padding-block:24px">
   <form class="login-app" id="f-entrar" autocomplete="on">
     <h2>Entrar no Diário de Obra</h2>
-    <p class="status" style="text-align:left;margin:0">Use o usuário e a senha cadastrados pelo supervisor.</p>
+    <p class="status" style="text-align:left;margin:0" id="l-intro">Use o usuário e a senha cadastrados pelo supervisor.</p>
     <label>Usuário<input id="l-usuario" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
     <label>Senha<input id="l-senha" type="password" autocomplete="current-password"></label>
     <button type="submit" class="btn pri" id="b-entrar-app">Entrar</button>
     <div class="msg" id="l-msg" role="status"></div>
     <p class="status" style="text-align:left;margin:0">Esqueceu a senha? Peça ao supervisor para redefinir.</p>
+    <p style="margin:0" id="l-outro-box" hidden><button type="button" class="linkbtn" id="l-outro">Entrar com outro usuário</button></p>
   </form>
 </div>
 
@@ -186,6 +188,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>
