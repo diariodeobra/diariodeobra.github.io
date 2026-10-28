@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 21:15";
+const VERSAO="27/10/2026 21:40";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -109,7 +109,21 @@ function validar(){
   if(!$("resp").value.trim())falta.push("responsável");
   if(!$("ativ").value.trim())falta.push("atividades executadas");
   if(falta.length){msg("Preencha: "+falta.join(", ")+".",true);return false;}
+  const dup=rdoDoDiaLocal($("idobra").value,$("data").value,editId);
+  if(dup){msg("Já existe o RDO nº "+(dup.rdo||"-")+" desta obra em "+fmtData(dup.data)+" ("+(dup.resp||"")+"), salvo neste celular. Só pode haver um RDO por obra em cada dia. Para corrigir, edite o RDO existente no Histórico.",true);$("data").focus();return false;}
   return true;
+}
+// regra: um único RDO por obra (ID) em cada dia
+function rdoDoDiaLocal(idobra,data,ignorar){
+  const k=norm(idobra);if(!k||!data)return null;
+  return registros.find(x=>x._id!==ignorar&&x.central!=="recusado"&&norm(x.idobra)===k&&x.data===data)||null;
+}
+async function verificarDiaCentral(r,uid){
+  if(!temCentral()||!navigator.onLine||!lerSessao())return null;
+  try{
+    const res=await Promise.race([postCentral({acao:"verificarDia",idobra:r.idobra,data:r.data,uid}),new Promise((_,no)=>setTimeout(()=>no(new Error("tempo")),8000))]);
+    return res&&res.existe||null;
+  }catch(e){return null;}   // sem resposta: a central confere de novo no envio
 }
 function limpar(){
   FIELDS.forEach(f=>{if(!["resp","idobra","obra","local","hini","hfim"].includes(f))$(f).value="";});
@@ -240,7 +254,7 @@ let confirmaSair=false,tSair=null;
 function rotuloSair(t,alerta){["b-sair-app","b-sair-top"].forEach(id=>{$(id).textContent=t;});$("b-sair-top").classList.toggle("alerta",!!alerta);}
 function pedirSair(){
   const s=lerSessao();
-  const pend=registros.filter(r=>r.central!=="ok"&&r.usuario===(s&&s.usuario)).length;
+  const pend=registros.filter(r=>r.central!=="ok"&&r.central!=="recusado"&&r.usuario===(s&&s.usuario)).length;
   if(!confirmaSair){
     confirmaSair=true;
     rotuloSair(pend?"Há "+pend+" RDO(s) seus sem envio. Toque de novo para sair":"Toque de novo para sair",true);
@@ -357,6 +371,8 @@ async function salvar(){
   r.resp=s.nome;r.usuario=s.usuario;
   if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}
   const id=editId||("rdo-"+Date.now());
+  const existe=await verificarDiaCentral(r,id);
+  if(existe){const e=new Error(existe.erro+" Se precisar complementar, edite o RDO existente (se for seu) ou fale com o supervisor.");e.dup=true;throw e;}
   const antigo=editId?registros.find(x=>x._id===editId):null;
   const reg={...r,_id:id,criadoEm:antigo?(antigo.criadoEm||new Date(criadoEm(antigo)).toISOString()):new Date().toISOString(),salvoEm:new Date().toISOString(),central:"pendente",centralPdf:"pendente"};
   await dbPut(reg);
@@ -417,7 +433,7 @@ async function postCentral(o){
   const s=lerSessao();if(!s)throw new Error("sem login");
   const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...o,chave:CENTRAL.chave,token:s.token})});
   const res=await r.json();
-  if(!res.ok){if(res.erro==="sessao"){sessaoInvalida();throw new Error("login necessário");}throw new Error(res.erro||"falha no envio");}
+  if(!res.ok){if(res.erro==="sessao"){sessaoInvalida();throw new Error("login necessário");}const er=new Error(res.erro||"falha no envio");er.codigo=res.codigo||"";throw er;}
   return res;
 }
 async function enviarCentral(r){
@@ -441,9 +457,12 @@ async function sincronizar(){
   sincronizando=true;let erro="";
   try{
     const meus=r=>doResponsavel(r);
-    for(const r of registros.filter(x=>x.central!=="ok"&&meus(x))){
-      try{await enviarCentral(r);r.central="ok";r.centralPdf="ok";r.centralEm=new Date().toISOString();await dbPut(r);}
-      catch(e){erro=String(e&&e.message||e);break;}
+    for(const r of registros.filter(x=>x.central!=="ok"&&x.central!=="recusado"&&meus(x))){
+      try{await enviarCentral(r);r.central="ok";r.centralPdf="ok";r.centralEm=new Date().toISOString();delete r.erroCentral;await dbPut(r);}
+      catch(e){
+        if(e&&e.codigo){r.central="recusado";r.erroCentral=String(e.message);await dbPut(r);continue;}   // recusa definitiva: segue com os outros
+        erro=String(e&&e.message||e);break;
+      }
     }
     // RDOs enviados antes desta versão: completa só o PDF
     if(!erro)for(const r of registros.filter(x=>x.central==="ok"&&x.centralPdf!=="ok"&&meus(x))){
@@ -705,7 +724,7 @@ $("b-fotos").onclick=async()=>{
   if(!validar())return;
   if(!fotos.length){msg("Adicione pelo menos uma foto, ou use o envio em PDF.",true);return;}
   try{const r=await salvar();limpar();msg("RDO "+r.rdo+" salvo.");await enviarFotos(r,msg);}
-  catch(e){msg("Não consegui salvar ("+(e&&e.message||e)+").",true);}
+  catch(e){msg(e&&e.dup?e.message:"Não consegui salvar ("+(e&&e.message||e)+").",true);}
 };
 $("pf-fechar").onclick=()=>{$("v-painel").hidden=true;envio=null;};
 
@@ -719,7 +738,7 @@ async function salvarEEnviar(btn,fmt){
     msg("RDO "+r.rdo+" salvo.");
     if(share)await compartilhar();      // abre direto a tela de compartilhar
     else{baixarArquivo(envio.blob,envio.nome);pfMsg("Este aparelho não envia arquivos direto. O "+F.rotulo+" foi baixado: use Abrir WhatsApp e anexe pelo clipe.");}
-  }catch(e){msg("Não consegui gerar o "+F.rotulo+" ("+(e&&e.message||e)+").",true);}
+  }catch(e){msg(e&&e.dup?e.message:"Não consegui gerar o "+F.rotulo+" ("+(e&&e.message||e)+").",true);}
   finally{btn.disabled=false;btn.innerHTML=lbl;}
 }
 $("b-wa").onclick=()=>salvarEEnviar($("b-wa"),"pdf");
@@ -727,7 +746,7 @@ $("b-word").onclick=()=>salvarEEnviar($("b-word"),"docx");
 $("b-save").onclick=async()=>{
   if(!validar())return;
   try{const r=await salvar();limpar();msg("RDO "+r.rdo+" salvo neste celular.");}
-  catch(e){msg("Não consegui salvar ("+(e&&e.message||e)+").",true);}
+  catch(e){msg(e&&e.dup?e.message:"Não consegui salvar ("+(e&&e.message||e)+").",true);}
 };
 $("b-txt").onclick=()=>{if(!validar())return;const r=lerForm();if(!r.rdo){r.rdo=String(proxRdo(r));$("rdo").value=r.rdo;}abrirWa(textoCompleto(r));};
 let confirmLimpar=false;
@@ -745,7 +764,7 @@ function filtrados(asc){
 }
 let thumbUrls=[];
 function render(){
-  const pend=temCentral()?registros.filter(r=>r.central!=="ok").length:0;
+  const pend=temCentral()?registros.filter(r=>r.central!=="ok"&&r.central!=="recusado").length:0;
   const st=$("sync-st");
   if(st){st.hidden=!pend;st.querySelector("span").textContent=pend+" RDO"+(pend>1?"s":"")+" aguardando envio à central do supervisor"+(ultimoErroCentral?" (último erro: "+ultimoErroCentral+")":navigator.onLine?"":" (sem internet)")+".";}
   const uniq=k=>[...new Set(registros.map(r=>r[k]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"pt"));
@@ -764,7 +783,7 @@ function render(){
     const th=fs.map((f,i)=>{const u=URL.createObjectURL(f.blob);thumbUrls.push(u);return `<figure><img src="${u}" alt="Foto ${i+1}" loading="lazy"><figcaption>${esc(f.desc||"Foto "+(i+1))}</figcaption></figure>`;}).join("");
     return `<article class="entry">
       <div class="top"><h3>${esc(obraNome(r))}</h3><span class="rdo">RDO ${esc(r.rdo||"-")}</span></div>
-      ${temCentral()?(r.central==="ok"?'<div><span class="pill ok">✓ Na central do supervisor</span></div>':'<div><span class="pill">⏳ Aguardando envio à central</span></div>'):""}
+      ${temCentral()?(r.central==="ok"?'<div><span class="pill ok">✓ Na central do supervisor</span></div>':r.central==="recusado"?`<div class="recusado"><span class="pill alert">✗ Não aceito pela central</span> ${esc(r.erroCentral||"")} Corrija a data (Editar) ou exclua este RDO.</div>`:'<div><span class="pill">⏳ Aguardando envio à central</span></div>'):""}
       <div class="meta">${esc(fmtData(r.data))} · ${esc(r.resp)} · <span class="num">${total(r)}</span> pessoas</div>
       ${r.ocor?'<div><span class="pill alert">Ocorrência</span></div>':""}
       <div class="body">${esc((r.ativ||"").split("\n")[0])}${(r.ativ||"").includes("\n")?" …":""}</div>
@@ -772,8 +791,8 @@ function render(){
       <div class="tools">
         <button class="btn wa" data-a="wa" data-f="pdf" data-id="${esc(r._id)}">Enviar PDF</button>
         <button class="btn wa" data-a="wa" data-f="docx" data-id="${esc(r._id)}">Enviar Word</button>
-        ${podeEditar(r)?`<button class="btn sec" data-a="ed" data-id="${esc(r._id)}">Editar</button>
-        <button class="btn sec" data-a="del" data-id="${esc(r._id)}">Excluir</button>`:""}
+        ${podeEditar(r)?`<button class="btn sec" data-a="ed" data-id="${esc(r._id)}">Editar</button>`:""}
+        ${podeEditar(r)||(r.central==="recusado"&&doResponsavel(r))?`<button class="btn sec" data-a="del" data-id="${esc(r._id)}">Excluir</button>`:""}
       </div>
       ${podeEditar(r)?`<div class="status" style="text-align:left">Pode editar até ${esc(new Date(criadoEm(r)+PRAZO_MS).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}))}</div>`:`<div><span class="pill">🔒 ${esc(motivoBloqueio(r))}</span></div>`}
     </article>`;}).join("");
@@ -788,7 +807,7 @@ $("lista").addEventListener("click",async e=>{
     catch(err){msgExp("Não consegui gerar o arquivo ("+(err&&err.message||err)+").",true);}
     finally{b.disabled=false;b.textContent=lbl;}
   }
-  if((b.dataset.a==="ed"||b.dataset.a==="del")&&!podeEditar(r)){msgExp(motivoBloqueio(r)+".",true);render();return;}
+  if((b.dataset.a==="ed"||b.dataset.a==="del")&&!podeEditar(r)&&!(b.dataset.a==="del"&&r.central==="recusado"&&doResponsavel(r))){msgExp(motivoBloqueio(r)+".",true);render();return;}
   if(b.dataset.a==="ed"){preencher(r);aplicarPerfil();editId=r._id;sincronizarSelecao(r.idobra);update();tab(false);window.scrollTo(0,0);msg("Editando o RDO "+(r.rdo||"")+". Salve para gravar as mudanças.");}
   if(b.dataset.a==="del"){
     if(b.dataset.c!=="1"){b.dataset.c="1";b.textContent="Confirmar exclusão";b.style.color="var(--danger)";return;}

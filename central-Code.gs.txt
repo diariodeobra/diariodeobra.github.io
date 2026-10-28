@@ -146,6 +146,10 @@ function doPost(e) {
   lock.waitLock(20000);
   try {
     if (body.acao === "salvar") return json_(salvarRdo_(body.rdo || {}, u));
+    if (body.acao === "verificarDia") {
+      const dup = rdoDoDia_(aba_(), body.idobra, body.data, limpa_(body.uid, 80));
+      return json_({ ok: true, existe: dup ? { rdo: dup.rdo, resp: dup.resp, erro: msgDuplicado_(dup, body.idobra, body.data) } : null });
+    }
     const sh = aba_(), linha = linhaDoUid_(sh, limpa_(body.uid, 80));
     if (linha) { const dono = lerLinha_(sh, linha).usuario; if (dono && dono !== u.login) return json_({ ok: false, erro: "Este RDO é de outro responsável." }); }
     if (body.acao === "foto") return json_(salvarFoto_(body));
@@ -161,11 +165,14 @@ function salvarRdo_(r, u) {
   const sh = aba_();
   let linha = linhaDoUid_(sh, uid);
   const antigo = linha ? lerLinha_(sh, linha) : null;
-  if (antigo && antigo.usuario && antigo.usuario !== u.login) return { ok: false, erro: "Este RDO é de outro responsável." };
+  if (antigo && antigo.usuario && antigo.usuario !== u.login) return { ok: false, codigo: "outro", erro: "Este RDO é de outro responsável." };
   // edição: até 48 h da criação, com 24 h de folga para quem ficou sem internet
   const criado = (/^rdo-(\d{12,})/.exec(uid) || [])[1];
-  if (antigo && criado && Date.now() - Number(criado) > 72 * 3600 * 1000) return { ok: false, erro: "O prazo para editar este RDO terminou." };
-  if (!obraPermitida_(r.idobra, u)) return { ok: false, erro: "A obra " + limpa_(r.idobra, 40) + " não está sob sua responsabilidade." };
+  if (antigo && criado && Date.now() - Number(criado) > 72 * 3600 * 1000) return { ok: false, codigo: "prazo", erro: "O prazo para editar este RDO terminou." };
+  if (!obraPermitida_(r.idobra, u)) return { ok: false, codigo: "obra", erro: "A obra " + limpa_(r.idobra, 40) + " não está sob sua responsabilidade." };
+  // regra: um único RDO por obra (ID) em cada dia
+  const dup = rdoDoDia_(sh, r.idobra, r.data, uid);
+  if (dup) return { ok: false, codigo: "duplicado", existente: dup, erro: msgDuplicado_(dup, r.idobra, r.data) };
   const n = k => parseInt(r[k], 10) || 0;
   const reg = {
     uid: uid, recebido_em: new Date(),
@@ -188,6 +195,30 @@ function salvarRdo_(r, u) {
   else { sh.appendRow(valores[0]); linha = sh.getLastRow(); }
   sh.getRange(linha, 6).setNumberFormat("@");
   return { ok: true, uid: uid, novo: !antigo };
+}
+
+function dataTexto_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, "America/Sao_Paulo", "yyyy-MM-dd");
+  const s = String(v == null ? "" : v).trim();
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+  return m ? m[3] + "-" + m[2] + "-" + m[1] : s.slice(0, 10);
+}
+// procura outro RDO da mesma obra (pelo ID) na mesma data
+function rdoDoDia_(sh, idobra, data, uidIgnorar) {
+  const k = norm_(idobra), d = dataTexto_(data), n = sh.getLastRow();
+  if (!k || !d || n < 2) return null;
+  const v = sh.getRange(2, 1, n - 1, 8).getValues();
+  for (let i = 0; i < v.length; i++) {
+    const l = v[i];
+    if (String(l[0]) !== String(uidIgnorar || "") && norm_(l[2]) === k && dataTexto_(l[5]) === d)
+      return { uid: String(l[0]), rdo: String(l[6]), resp: String(l[7]) };
+  }
+  return null;
+}
+function msgDuplicado_(dup, idobra, data) {
+  const d = dataTexto_(data).split("-").reverse().join("/");
+  return "Já existe o RDO nº " + dup.rdo + " da obra " + limpa_(idobra, 40) + " em " + d + (dup.resp ? " (feito por " + dup.resp + ")" : "") +
+    ". Só pode haver um RDO por obra em cada dia.";
 }
 
 function salvarFoto_(b) {
