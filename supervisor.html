@@ -148,7 +148,7 @@ tbody tr:hover{background:var(--chip)}
     </section>
 
     <section class="card" id="c-obras">
-      <div class="topo"><h2>Obras cadastradas <span id="n-obras"></span></h2><span class="topo-botoes"><button type="button" class="btn sec perigo" id="b-excluir-obras">🗑 Excluir obras</button><button type="button" class="btn pri" id="b-nova-obra">+ Nova obra</button></span></div>
+      <div class="topo"><h2>Obras cadastradas <span id="n-obras"></span></h2><span class="topo-botoes"><button type="button" class="btn sec perigo" id="b-excluir-obras">🗑 Excluir obra</button><button type="button" class="btn pri" id="b-nova-obra">+ Nova obra</button></span></div>
       <p class="status" style="text-align:left;margin:0">Os encarregados escolhem a obra nesta lista. Obras inativas somem do app, mas o histórico continua no painel.</p>
       <form class="filtros" id="f-obra-form" hidden autocomplete="off">
         <label style="flex:0 1 120px">ID<input id="o-id" class="num" required></label>
@@ -225,11 +225,12 @@ tbody tr:hover{background:var(--chip)}
     </section>
   </div>
 </div>
+  <p class="status" id="versao-painel" style="margin-top:8px">Versão do painel: 28/10/2026 21:00</p>
 </main>
 
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=23"></script>
+<script src="supervisor.js?v=24"></script>
 </body>
 </html>
