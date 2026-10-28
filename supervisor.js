@@ -39,8 +39,8 @@ function msg(id,t,err){const m=$(id);m.textContent=t;m.className="msg"+(err?" er
 /* ---------- acesso ---------- */
 async function chamar(params){
   if(!CENTRAL.url)throw new Error("A central ainda não foi configurada.");
-  const u=CENTRAL.url+"?"+new URLSearchParams({...params,senha}).toString();
-  const r=await fetch(u);const j=await r.json();
+  const u=CENTRAL.url+"?"+new URLSearchParams({...params,senha,_:Date.now()}).toString();   // _ evita resposta guardada em cache
+  const r=await fetch(u,{cache:"no-store"});const j=await r.json();
   if(!j.ok)throw new Error(j.erro||"falha");
   return j;
 }
@@ -128,6 +128,7 @@ $("b-entrar").onclick=entrar;
 $("senha").addEventListener("keydown",e=>{if(e.key==="Enter")entrar();});
 $("b-sair").onclick=()=>{try{sessionStorage.removeItem("sup-senha");}catch(e){}senha="";todos=[];$("v-painel").hidden=true;$("v-login").hidden=false;$("senha").value="";};
 
+let ultimaCarga=0;
 async function carregar(){
   const j=await chamar({acao:"listar"});
   todos=(j.rdos||[]).map(r=>({...r,data:dataStr(r.data),total:num(r.total)})).filter(r=>r.data);
@@ -135,6 +136,7 @@ async function carregar(){
   mostrarSenhaInfo(j.senhaInfo);
   planilha=j.planilha||"";
   if(planilha){$("link-planilha").href=planilha;$("link-planilha").hidden=false;}
+  ultimaCarga=Date.now();
   $("atualizado").textContent="Atualizado às "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "+todos.length+" RDOs na central";
   montarFiltros();render();
   carregarObras();carregarAviso();
@@ -254,7 +256,23 @@ $("b-aviso-teste").onclick=async()=>{
   catch(err){msg("msg-aviso","Não consegui enviar: "+err.message,true);}
   finally{b.disabled=false;}
 };
-$("b-atualizar").onclick=async()=>{try{msg("msg","Atualizando…");await carregar();msg("msg","");}catch(e){msg("msg","Não consegui atualizar: "+e.message,true);}};
+let atualizando=false;
+async function atualizar(manual){
+  if(atualizando||!senha)return;
+  const b=$("b-atualizar");atualizando=true;
+  if(manual){b.disabled=true;b.textContent="Atualizando…";}
+  try{
+    await carregar();
+    if(manual){b.textContent="✓ Atualizado";msg("msg-atu","");setTimeout(()=>{b.textContent="Atualizar";},2000);}
+  }catch(e){
+    if(manual)b.textContent="Atualizar";
+    msg("msg-atu","Não consegui atualizar: "+e.message+". Verifique a internet e tente de novo.",true);
+  }finally{atualizando=false;b.disabled=false;}
+}
+$("b-atualizar").onclick=()=>atualizar(true);
+// atualiza sozinho a cada 5 minutos e ao voltar para a aba
+setInterval(()=>{if(document.visibilityState==="visible"&&!$("v-painel").hidden)atualizar(false);},5*60*1000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&!$("v-painel").hidden&&Date.now()-ultimaCarga>2*60*1000)atualizar(false);});
 
 /* ---------- filtros ---------- */
 function montarFiltros(){
