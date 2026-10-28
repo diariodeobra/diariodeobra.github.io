@@ -395,6 +395,18 @@ function obrasParaCampo_(u) {
     .map(o => ({ id: o.id, obra: o.obra, local: o.local, ativa: true, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
 }
 
+// exclui a obra do cadastro; os RDOs, fotos e PDFs dela continuam guardados
+function excluirObra_(id) {
+  const k = norm_(id);
+  if (!k) return { ok: false, erro: "Informe a obra." };
+  const sh = abaObras_(), n = sh.getLastRow();
+  const ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(l => norm_(l[0])) : [];
+  const i = ids.indexOf(k);
+  if (i < 0) return { ok: false, erro: "Obra " + limpa_(id, 40) + " não encontrada." };
+  sh.deleteRow(i + 2);
+  return { ok: true, obras: listarObras_(), usuarios: listarUsu_() };
+}
+
 function salvarObra_(o) {
   const id = limpa_(o.id, 40).trim(), obra = limpa_(o.obra, 120).trim(), local = limpa_(o.local, 120).trim();
   if (!id || !obra) return { ok: false, erro: "Informe o ID e o nome da obra." };
@@ -611,6 +623,7 @@ function acaoSupervisor_(b) {
   try {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
+    if (b.acao === "obraExcluir") return excluirObra_(b.id);
     if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);

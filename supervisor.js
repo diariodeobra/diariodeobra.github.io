@@ -152,14 +152,40 @@ async function carregarObras(){
 function renderObras2(){
   const at=cadObras.filter(o=>o.ativa).length;
   $("n-obras").textContent="("+at+" ativa"+(at!==1?"s":"")+(cadObras.length>at?", "+(cadObras.length-at)+" inativa"+(cadObras.length-at>1?"s":""):"")+")";
-  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${(o.responsaveis||[]).length?esc(o.responsaveis.map(nomeUsu).join(", ")):'<span class="status">Todos</span>'}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td><button type="button" class="linkbtn" data-ed="${i}">Editar</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
+  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${(o.responsaveis||[]).length?esc(o.responsaveis.map(nomeUsu).join(", ")):'<span class="status">Todos</span>'}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td class="acoes-obra"><button type="button" class="linkbtn" data-ed="${i}">Editar</button><button type="button" class="linkbtn perigo" data-ex="${i}">Excluir</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
   $("t-cad-obras").querySelectorAll("[data-ed]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirObra(cadObras[+b.dataset.ed]);});
+  $("t-cad-obras").querySelectorAll("[data-ex]").forEach(b=>b.onclick=e=>{e.stopPropagation();pedirExcluirObra(cadObras[+b.dataset.ex],b);});
+}
+// excluir obra: dois cliques; os RDOs dela continuam guardados
+let exclObra=null,tExcl=null;
+function pedirExcluirObra(o,b){
+  if(!o)return;
+  if(exclObra!==o.id){
+    document.querySelectorAll(".confirmar-exclusao").forEach(x=>{x.classList.remove("confirmar-exclusao");x.textContent=x.id==="b-obra-excluir"?"Excluir obra":"Excluir";});
+    exclObra=o.id;b.classList.add("confirmar-exclusao");b.textContent="Confirmar exclusão";
+    const n=todos.filter(r=>norm(r.idobra)===norm(o.id)).length;
+    msg("msg-obras","Excluir a obra "+o.id+" - "+o.obra+"? "+(n?"Ela tem "+n+(n>1?" RDOs registrados: eles continuam guardados":" RDO registrado: ele continua guardado")+" na central e no Drive, mas a obra sai do cadastro e da lista dos encarregados. ":"Ela sai do cadastro e da lista dos encarregados. ")+"Se a obra só terminou, prefira mudar para Inativa. Para excluir, clique em Confirmar exclusão.",true);
+    clearTimeout(tExcl);tExcl=setTimeout(()=>{if(exclObra===o.id){exclObra=null;b.classList.remove("confirmar-exclusao");b.textContent=b.id==="b-obra-excluir"?"Excluir obra":"Excluir";msg("msg-obras","");}},10000);
+    return;
+  }
+  clearTimeout(tExcl);exclObra=null;excluirObra(o,b);
+}
+async function excluirObra(o,b){
+  b.disabled=true;msg("msg-obras","Excluindo a obra "+o.id+"…");
+  try{
+    const j=await enviar({acao:"obraExcluir",id:o.id});
+    cadObras=j.obras||[];if(j.usuarios)usuarios=j.usuarios;renderObras2();renderUsu();
+    if(editandoId===o.id){$("f-obra-form").hidden=true;editandoId=null;}
+    msg("msg-obras","Obra "+o.id+" excluída do cadastro. Os RDOs dela continuam no painel e na planilha.");
+  }catch(err){msg("msg-obras","Não consegui excluir: "+err.message,true);b.disabled=false;}
 }
 function abrirObra(o){
   editandoId=o?o.id:null;
   $("o-id").value=o?o.id:"";$("o-nome").value=o?o.obra:"";$("o-local").value=o?o.local:"";$("o-ativa").value=!o||o.ativa?"1":"0";
   const sel=new Set(o?o.responsaveis||[]:[]);
   $("o-resp").innerHTML=usuarios.filter(u=>u.ativo||sel.has(u.login)).map(u=>`<label class="chip"><input type="checkbox" value="${esc(u.login)}"${sel.has(u.login)?" checked":""}>${esc(u.nome)}</label>`).join("")||'<span class="status">Cadastre os encarregados na seção abaixo.</span>';
+  const bx=$("b-obra-excluir");bx.hidden=!o;bx.disabled=false;bx.classList.remove("confirmar-exclusao");bx.textContent="Excluir obra";
+  bx.onclick=()=>pedirExcluirObra(o,bx);
   $("f-obra-form").hidden=false;$("b-obra-salvar").textContent=o?"Salvar alterações":"Cadastrar obra";msg("msg-obras","");$("o-id").focus();
 }
 $("b-nova-obra").onclick=()=>abrirObra(null);
