@@ -116,3 +116,7 @@ header .wrap{position:relative}
 .btn-sair-top:hover{background:rgba(255,255,255,.22)}
 .btn-sair-top.alerta{background:#B3261E;border-color:#B3261E;color:#fff}
 .login-app input[readonly]{background:var(--bg);color:var(--muted)}
+.chk-lembrar{display:flex;align-items:center;gap:10px;font-weight:600;font-size:.9rem;color:var(--fg,inherit);cursor:pointer}
+.chk-lembrar input{width:22px;height:22px;margin:0;accent-color:var(--accent);flex:none}
+.login-app label.chk-lembrar{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;text-align:left}
+.login-app label.chk-lembrar input{width:22px;height:22px;min-height:0;padding:0;margin:0}

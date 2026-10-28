@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 21:30";
+const VERSAO="27/10/2026 21:15";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -199,6 +199,7 @@ function mostrarLogin(motivo){
   try{if(!motivo&&localStorage.getItem("sessao-msg"))motivo=MSG_SESSAO;localStorage.removeItem("sessao-msg");}catch(e){}
   $("l-msg").textContent=motivo||"";$("l-msg").className="msg"+(motivo?" err":"");
   const u=$("l-usuario");if(!u.value)u.value=(lerSessao()||{}).usuario||localStorage.getItem("ultimo-usuario")||"";
+  setTimeout(()=>{if(typeof preencherSenhaSalva==="function")preencherSenhaSalva();},0);
 }
 function esconderLogin(){$("v-entrar").hidden=true;$("nav-tabs").hidden=false;tab(false);aplicarPerfil();}
 $("f-entrar").addEventListener("submit",async e=>{
@@ -207,7 +208,7 @@ $("f-entrar").addEventListener("submit",async e=>{
   if(!usuario||!senha){$("l-msg").textContent="Digite o usuário e a senha.";$("l-msg").className="msg err";return;}
   if(bloqueado()&&!navigator.onLine){
     // sem sinal: confere a senha com o registro guardado neste celular no último login
-    if(await senhaLocalOk(usuario,senha)){$("l-senha").value="";desbloquear();msg("App desbloqueado.");}
+    if(await senhaLocalOk(usuario,senha)){if($("l-lembrar").checked)await lembrarSenha(usuario,senha);else esquecerSenha();$("l-senha").value="";desbloquear();msg("App desbloqueado.");}
     else{$("l-msg").textContent="Senha incorreta.";$("l-msg").className="msg err";$("l-senha").value="";}
     return;
   }
@@ -216,10 +217,16 @@ $("f-entrar").addEventListener("submit",async e=>{
   try{
     const r=await fetch(CENTRAL.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({acao:"login",usuario,senha,chave:CENTRAL.chave})});
     const res=await r.json();
-    if(!res.ok)throw new Error(res.erro||"Não consegui entrar.");
+    if(!res.ok){
+      const d=temSenhaSalva();
+      if(d&&d.u===usuario&&/incorret/i.test(res.erro||"")){esquecerSenha();$("l-lembrar").checked=false;$("l-senha").value="";
+        throw new Error("A senha salva não vale mais (o supervisor pode ter trocado). Digite a senha nova.");}
+      throw new Error(res.erro||"Não consegui entrar.");
+    }
     const eraBloqueio=bloqueado();
     gravarSessao({token:res.token,usuario:res.usuario.login,nome:res.usuario.nome});
     await guardarSenhaLocal(usuario,senha);
+    if($("l-lembrar").checked)await lembrarSenha(usuario,senha);else esquecerSenha();
     ultimoUso=Date.now();try{localStorage.setItem("ultimo-uso",String(ultimoUso));}catch(err){}
     if(eraBloqueio){$("l-senha").value="";desbloquear();msg("App desbloqueado.");carregarListaObras();sincronizar();return;}
     try{localStorage.setItem("ultimo-usuario",res.usuario.login);localStorage.removeItem("obras-lista");}catch(err){}
@@ -249,8 +256,42 @@ function sairApp(){
 $("b-sair-app").onclick=pedirSair;
 $("b-sair-top").onclick=pedirSair;
 $("l-outro").onclick=()=>{sairApp();$("l-usuario").focus();};
+/* ---------- senha lembrada no celular (cifrada com chave que não sai do aparelho) ---------- */
+function chaveDb(){return new Promise((ok,no)=>{const q=indexedDB.open("rdo-chave",1);q.onupgradeneeded=()=>q.result.createObjectStore("k");q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error);});}
+async function chaveCifra(){
+  const d=await chaveDb();
+  const ler=()=>new Promise((ok,no)=>{const r=d.transaction("k").objectStore("k").get("aes");r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});
+  let k=await ler();
+  if(!k){k=await crypto.subtle.generateKey({name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+    await new Promise((ok,no)=>{const t=d.transaction("k","readwrite");t.objectStore("k").put(k,"aes");t.oncomplete=ok;t.onerror=()=>no(t.error);});}
+  return k;
+}
+const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u))),deb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function lembrarSenha(usuario,senha){
+  try{const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},await chaveCifra(),new TextEncoder().encode(senha));
+    localStorage.setItem("senha-salva",JSON.stringify({u:usuario,iv:b64(iv),ct:b64(ct)}));}catch(e){}
+}
+function esquecerSenha(){try{localStorage.removeItem("senha-salva");}catch(e){}}
+function temSenhaSalva(){try{return JSON.parse(localStorage.getItem("senha-salva")||"null");}catch(e){return null;}}
+async function senhaSalva(usuario){
+  const d=temSenhaSalva();if(!d||d.u!==usuario)return "";
+  try{const p=await crypto.subtle.decrypt({name:"AES-GCM",iv:deb64(d.iv)},await chaveCifra(),deb64(d.ct));return new TextDecoder().decode(p);}
+  catch(e){esquecerSenha();return "";}
+}
+// preenche a senha salva na tela de entrada
+async function preencherSenhaSalva(){
+  const u=$("l-usuario").value.trim().toLowerCase(),d=temSenhaSalva();
+  $("l-lembrar").checked=!!d&&(!u||d.u===u);
+  if(!u||!d||d.u!==u)return;
+  const s=await senhaSalva(u);
+  if(s&&!$("v-entrar").hidden&&!$("l-senha").value){$("l-senha").value=s;$("b-entrar-app").focus();
+    if(!$("l-msg").textContent){$("l-msg").textContent="Senha salva neste celular. Toque em Entrar.";$("l-msg").className="msg";}}
+}
+$("l-usuario").addEventListener("change",()=>{$("l-senha").value="";preencherSenhaSalva();});
+$("l-lembrar").addEventListener("change",()=>{if(!$("l-lembrar").checked)esquecerSenha();});
 /* ---------- bloqueio por inatividade: volta para a tela de senha ---------- */
-const INATIVO_MS=15*60*1000;
+const INATIVO_MS=20*60*1000;
 let ultimoUso=Date.now();
 const bloqueado=()=>{try{return localStorage.getItem("bloqueio")==="1";}catch(e){return false;}};
 function marcarUso(){
@@ -266,14 +307,14 @@ function verificarInatividade(){
 }
 function modoBloqueio(on){
   $("l-usuario").readOnly=on;$("l-outro-box").hidden=!on;
-  $("l-intro").textContent=on?"Por segurança, o app foi bloqueado após 15 minutos sem uso. Digite sua senha para continuar. O que você estava preenchendo não se perde.":"Use o usuário e a senha cadastrados pelo supervisor.";
+  $("l-intro").textContent=on?"Por segurança, o app foi bloqueado após 20 minutos sem uso. Digite sua senha para continuar. O que você estava preenchendo não se perde.":"Use o usuário e a senha cadastrados pelo supervisor.";
 }
 function bloquearApp(){
   const s=lerSessao();if(!s)return;
   try{localStorage.setItem("bloqueio","1");}catch(e){}
   draftPut({...lerForm(),editId}).catch(()=>{});
   mostrarLogin("");modoBloqueio(true);
-  $("l-usuario").value=s.usuario;$("l-senha").value="";
+  $("l-usuario").value=s.usuario;$("l-senha").value="";preencherSenhaSalva();
 }
 function desbloquear(){
   try{localStorage.removeItem("bloqueio");localStorage.setItem("ultimo-uso",String(Date.now()));}catch(e){}
@@ -296,7 +337,7 @@ async function senhaLocalOk(usuario,senha){
 }
 // sessão expirada ou usuário desativado/senha redefinida pelo supervisor
 const MSG_SESSAO="Sua sessão terminou (senha redefinida ou usuário alterado pelo supervisor). Entre novamente. Os RDOs salvos continuam no celular.";
-function sessaoInvalida(){gravarSessao(null);try{localStorage.removeItem("bloqueio");localStorage.removeItem("desbloq");}catch(e){}try{localStorage.setItem("sessao-msg","1");}catch(e){}mostrarLogin(MSG_SESSAO);}
+function sessaoInvalida(){gravarSessao(null);esquecerSenha();try{localStorage.removeItem("bloqueio");localStorage.removeItem("desbloq");}catch(e){}try{localStorage.setItem("sessao-msg","1");}catch(e){}mostrarLogin(MSG_SESSAO);}
 // apaga do celular os RDOs com mais de 48 h que já estão na central
 async function limparAntigos(){
   if(!temCentral())return;
