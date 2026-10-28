@@ -1,6 +1,6 @@
 (function(){
 "use strict";
-const VERSAO="27/10/2026 22:10";
+const VERSAO="28/10/2026 09:50";
 const $=id=>document.getElementById(id);
 const CLIMAS=["☀️ Bom","⛅ Nublado","🌧️ Chuva","⛈️ Impraticável"];
 const MO=[["m_lid","Líder"],["m_mon","Montador"],["m_aux","Auxiliar"],["m_out","Outros"]];
@@ -946,15 +946,33 @@ $("b-pdfs").onclick=async()=>{
   catch(e){msgExp("Não consegui gerar o PDF ("+(e&&e.message||e)+").",true);}
 };
 
-/* ---------- instalar como app ---------- */
-let promptInstalar=null;
-const instalado=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone;
-window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();promptInstalar=e;if(!instalado)$("instalar").hidden=false;});
-$("b-instalar").onclick=async()=>{if(!promptInstalar)return;promptInstalar.prompt();await promptInstalar.userChoice;promptInstalar=null;$("instalar").hidden=true;};
-if(!instalado&&/iphone|ipad|ipod/i.test(navigator.userAgent)){
-  $("instalar").hidden=false;$("b-instalar").hidden=true;
-  $("instalar-txt").textContent="Para instalar no iPhone: toque em Compartilhar (quadrado com seta) e depois em Adicionar à Tela de Início.";
+/* ---------- instalar o aplicativo na tela inicial ---------- */
+let pedidoInstalar=null;
+const instalado=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const ehIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+function adiadoInstalar(){try{return Date.now()<(+localStorage.getItem("instalar-adiado")||0);}catch(e){return false;}}
+function mostrarInstalar(forcar){
+  if(instalado()){$("instalar").hidden=true;$("b-instalar-rodape").hidden=true;return;}
+  $("b-instalar-rodape").hidden=false;
+  if(!forcar&&adiadoInstalar())return;
+  const como=$("instalar-como"),b=$("b-instalar");
+  if(pedidoInstalar){como.textContent="Fica com ícone na tela inicial, abre mais rápido e funciona sem internet.";b.hidden=false;}
+  else if(ehIOS()){como.innerHTML="No Safari, toque em <b>Compartilhar</b> (o quadrado com a seta ⬆️) e depois em <b>Adicionar à Tela de Início</b>.";b.hidden=true;}
+  else{como.innerHTML="Abra o menu do navegador (<b>⋮</b>) e toque em <b>Instalar aplicativo</b> ou <b>Adicionar à tela inicial</b>.";b.hidden=true;}
+  $("instalar").hidden=false;
 }
+addEventListener("beforeinstallprompt",e=>{e.preventDefault();pedidoInstalar=e;mostrarInstalar(false);});
+addEventListener("appinstalled",()=>{pedidoInstalar=null;$("instalar").hidden=true;$("b-instalar-rodape").hidden=true;msg("Aplicativo instalado. Agora é só abrir pelo ícone Diário de Obra na tela inicial.");});
+$("b-instalar").onclick=async()=>{
+  if(!pedidoInstalar){mostrarInstalar(true);return;}
+  pedidoInstalar.prompt();
+  try{const r=await pedidoInstalar.userChoice;if(r&&r.outcome==="accepted")$("instalar").hidden=true;}catch(e){}
+  pedidoInstalar=null;
+};
+$("b-instalar-nao").onclick=()=>{try{localStorage.setItem("instalar-adiado",String(Date.now()+7*24*3600*1000));}catch(e){}$("instalar").hidden=true;};
+$("b-instalar-rodape").onclick=()=>{mostrarInstalar(true);window.scrollTo({top:0,behavior:"smooth"});};
+// dá um tempo para o navegador oferecer a instalação; senão mostra as instruções
+setTimeout(()=>mostrarInstalar(false),2500);
 if("serviceWorker" in navigator&&location.protocol==="https:"){
   // busca sempre a versão nova e recarrega quando ela chegar
   const tinha=!!navigator.serviceWorker.controller;let recarregou=false;

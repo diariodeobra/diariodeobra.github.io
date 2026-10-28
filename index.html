@@ -11,7 +11,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <header class="band">
@@ -25,6 +25,20 @@
   </div>
   <div class="stripe"></div>
 </header>
+
+<div class="wrap" id="instalar" hidden>
+  <div class="instalar-card">
+    <img src="icon-192.png" alt="" width="48" height="48">
+    <div class="instalar-txt">
+      <b>Instale o Diário de Obra no celular</b>
+      <span id="instalar-como">Fica com ícone na tela inicial, abre mais rápido e funciona sem internet.</span>
+    </div>
+    <div class="instalar-acoes">
+      <button type="button" class="btn pri" id="b-instalar">Instalar</button>
+      <button type="button" class="linkbtn" id="b-instalar-nao">Agora não</button>
+    </div>
+  </div>
+</div>
 
 <div class="wrap" id="v-entrar" hidden style="padding-block:24px">
   <form class="login-app" id="f-entrar" autocomplete="on">
@@ -66,11 +80,6 @@
 </div>
 
 <div class="wrap" id="v-novo">
-  <div class="notice instalar" id="instalar" hidden>
-    <span id="instalar-txt">Instale o Diário de Obra na tela inicial para abrir como aplicativo.</span>
-    <button type="button" class="btn pri" id="b-instalar">Instalar</button>
-  </div>
-
   <form id="f" autocomplete="off">
     <div style="display:flex;flex-direction:column;gap:14px">
     <fieldset>
@@ -176,6 +185,7 @@
       <li>Prefere as fotos soltas na conversa? Use <b>Salvar e enviar fotos com o texto</b>: as fotos chegam no grupo com o texto do RDO como legenda.</li>
     </ol>
     <p class="status">Os registros ficam guardados neste celular e funcionam sem internet. O PDF enviado no grupo é a cópia da equipe.</p>
+    <p class="status"><button type="button" class="linkbtn" id="b-instalar-rodape" hidden>📲 Instalar o aplicativo no celular</button></p>
     <p class="status" id="versao"></p>
     <p class="status"><a href="supervisor.html">Painel do supervisor</a></p>
   </div>
@@ -200,6 +210,6 @@
 
 <script src="lib/jspdf.umd.min.js"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
