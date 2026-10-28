@@ -527,3 +527,19 @@ $("b-excel").onclick=async()=>{
 if(!CENTRAL.url){msg("msg-login","A central ainda não foi configurada.",true);}
 try{const s=sessionStorage.getItem("sup-senha");if(s){$("senha").value=s;entrar();}}catch(e){}
 })();
+
+/* ---------- garante a versão mais nova do painel ---------- */
+(async()=>{
+  try{
+    const atual=(document.querySelector('script[src*="supervisor.js"]')||{}).src||"";
+    const h=await fetch("supervisor.html?_="+Date.now(),{cache:"no-store"}).then(r=>r.text());
+    const nova=(h.match(/supervisor\.js\?v=\d+/)||[""])[0];
+    if(nova&&!atual.includes(nova)){
+      if(sessionStorage.getItem("painel-recarregou")===nova)return;   // evita recarregar sem fim
+      sessionStorage.setItem("painel-recarregou",nova);
+      if(window.caches){const ks=await caches.keys();await Promise.all(ks.map(k=>caches.delete(k)));}
+      if(navigator.serviceWorker){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.update().catch(()=>{})));}
+      location.replace("supervisor.html?atualizado="+Date.now());
+    }
+  }catch(e){}
+})();
