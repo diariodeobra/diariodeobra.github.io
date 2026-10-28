@@ -1,5 +1,5 @@
 // Guarda o app no celular para funcionar sem internet no canteiro
-const CACHE="diario-obra-v23";
+const CACHE="diario-obra-v24";
 const ARQUIVOS=["./","index.html","style.css","app.js","style.css?v=15","app.js?v=15","config.js?v=8","config.js","supervisor.html","supervisor.js","logo.png","icon-192.png","icon-512.png","manifest.webmanifest","lib/jspdf.umd.min.js","lib/xlsx.full.min.js","lib/docx.umd.js"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ARQUIVOS)).then(()=>self.skipWaiting()));});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

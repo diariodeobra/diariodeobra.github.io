@@ -144,3 +144,21 @@ header .wrap{position:relative}
 .acoes-obra .linkbtn+.linkbtn{margin-left:14px}
 .confirmar-exclusao{background:#B3261E !important;color:#fff !important;border-color:#B3261E !important;border-radius:6px;padding:2px 8px;text-decoration:none}
 .btn.confirmar-exclusao{padding:14px}
+.topo-botoes{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn.perigo-cheio{background:#B3261E;color:#fff}
+.btn.perigo-cheio:disabled{opacity:.45;cursor:not-allowed}
+.barra-excluir{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border:1.5px solid #B3261E;border-radius:10px;padding:10px 14px;font-size:.9rem}
+#tab-cad-obras tr.marcada td{background:rgba(179,38,30,.08)}
+.col-sel{width:36px;text-align:center}
+.col-sel input{width:20px;height:20px;accent-color:#B3261E}
+@media (max-width:640px){
+  #tab-cad-obras thead{display:none}
+  #tab-cad-obras,#tab-cad-obras tbody,#tab-cad-obras tr,#tab-cad-obras td{display:block;width:auto}
+  #tab-cad-obras tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;position:relative}
+  #tab-cad-obras td{border:0;padding:3px 0}
+  #tab-cad-obras td[data-l]::before{content:attr(data-l) ": ";font-weight:600;color:var(--muted);font-size:.8rem}
+  #tab-cad-obras td.col-sel{position:absolute;right:10px;top:10px;width:auto}
+  #tab-cad-obras td.acoes-obra{padding-top:8px}
+  #tab-cad-obras tr.marcada{background:rgba(179,38,30,.08);border-color:#B3261E}
+  #tab-cad-obras tr.marcada td{background:none}
+}

@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#002B49">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 <style>
 /* Painel: filtros numa linha, indicadores, alertas, gráfico, resumo por obra, lista de RDOs */
 :root{--s1:#0073A8;--s2:#D08A1E;--s3:#2BA39B;--s4:#8A63B8;--grid:#E3E9EE;--warn:#B54708;--warn-bg:#FEF3E2}
@@ -148,7 +148,7 @@ tbody tr:hover{background:var(--chip)}
     </section>
 
     <section class="card" id="c-obras">
-      <div class="topo"><h2>Obras cadastradas <span id="n-obras"></span></h2><button type="button" class="btn pri" id="b-nova-obra">+ Nova obra</button></div>
+      <div class="topo"><h2>Obras cadastradas <span id="n-obras"></span></h2><span class="topo-botoes"><button type="button" class="btn sec perigo" id="b-excluir-obras">🗑 Excluir obras</button><button type="button" class="btn pri" id="b-nova-obra">+ Nova obra</button></span></div>
       <p class="status" style="text-align:left;margin:0">Os encarregados escolhem a obra nesta lista. Obras inativas somem do app, mas o histórico continua no painel.</p>
       <form class="filtros" id="f-obra-form" hidden autocomplete="off">
         <label style="flex:0 1 120px">ID<input id="o-id" class="num" required></label>
@@ -160,8 +160,12 @@ tbody tr:hover{background:var(--chip)}
         <button type="button" class="btn sec" id="b-obra-cancelar">Cancelar</button>
         <button type="button" class="btn sec perigo" id="b-obra-excluir" hidden>Excluir obra</button>
       </form>
+      <div class="barra-excluir" id="barra-excluir" hidden>
+        <span>Marque as obras que deseja excluir. Os RDOs, fotos e PDFs delas continuam guardados.</span>
+        <span class="topo-botoes"><button type="button" class="btn perigo-cheio" id="b-excl-sel" disabled>Excluir selecionadas (0)</button><button type="button" class="btn sec" id="b-excl-cancelar">Cancelar</button></span>
+      </div>
       <div class="msg" id="msg-obras" role="status"></div>
-      <div class="tabela"><table><thead><tr><th>ID</th><th>Obra</th><th>Local</th><th>Responsáveis</th><th>Situação</th><th></th></tr></thead><tbody id="t-cad-obras"></tbody></table></div>
+      <div class="tabela"><table id="tab-cad-obras"><thead><tr><th class="col-sel" hidden><input type="checkbox" id="excl-todas" aria-label="Marcar todas"></th><th>ID</th><th>Obra</th><th>Local</th><th>Responsáveis</th><th>Situação</th><th></th></tr></thead><tbody id="t-cad-obras"></tbody></table></div>
     </section>
 
     <section class="card" id="c-usu">
@@ -226,6 +230,6 @@ tbody tr:hover{background:var(--chip)}
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=22"></script>
+<script src="supervisor.js?v=23"></script>
 </body>
 </html>

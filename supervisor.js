@@ -152,10 +152,47 @@ async function carregarObras(){
 function renderObras2(){
   const at=cadObras.filter(o=>o.ativa).length;
   $("n-obras").textContent="("+at+" ativa"+(at!==1?"s":"")+(cadObras.length>at?", "+(cadObras.length-at)+" inativa"+(cadObras.length-at>1?"s":""):"")+")";
-  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"><td>${esc(o.id)}</td><td>${esc(o.obra)}</td><td>${esc(o.local)}</td><td>${(o.responsaveis||[]).length?esc(o.responsaveis.map(nomeUsu).join(", ")):'<span class="status">Todos</span>'}</td><td>${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td class="acoes-obra"><button type="button" class="linkbtn" data-ed="${i}">Editar</button><button type="button" class="linkbtn perigo" data-ex="${i}">Excluir</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
+  document.querySelector("#tab-cad-obras .col-sel").hidden=!modoExcl;
+  $("t-cad-obras").innerHTML=cadObras.length?cadObras.map((o,i)=>`<tr data-i="${i}"${modoExcl&&selExcl.has(o.id)?' class="marcada"':''}>${modoExcl?`<td class="col-sel"><input type="checkbox" data-sel="${i}"${selExcl.has(o.id)?" checked":""} aria-label="Marcar a obra ${esc(o.id)}"></td>`:""}<td data-l="ID">${esc(o.id)}</td><td data-l="Obra">${esc(o.obra)}</td><td data-l="Local">${esc(o.local)}</td><td data-l="Responsáveis">${(o.responsaveis||[]).length?esc(o.responsaveis.map(nomeUsu).join(", ")):'<span class="status">Todos</span>'}</td><td data-l="Situação">${o.ativa?'<span class="pill ok">Ativa</span>':'<span class="pill">Inativa</span>'}</td><td class="acoes-obra"><button type="button" class="linkbtn" data-ed="${i}">Editar</button><button type="button" class="linkbtn perigo" data-ex="${i}">Excluir</button></td></tr>`).join(""):'<tr><td colspan="5" class="status">Nenhuma obra cadastrada. Clique em + Nova obra.</td></tr>';
   $("t-cad-obras").querySelectorAll("[data-ed]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirObra(cadObras[+b.dataset.ed]);});
   $("t-cad-obras").querySelectorAll("[data-ex]").forEach(b=>b.onclick=e=>{e.stopPropagation();pedirExcluirObra(cadObras[+b.dataset.ex],b);});
+  $("t-cad-obras").querySelectorAll("[data-sel]").forEach(c=>c.onchange=()=>{const o=cadObras[+c.dataset.sel];if(c.checked)selExcl.add(o.id);else selExcl.delete(o.id);c.closest("tr").classList.toggle("marcada",c.checked);atualizarBarraExcl();});
+  if(modoExcl)atualizarBarraExcl();
 }
+/* ---------- excluir várias obras de uma vez ---------- */
+let modoExcl=false;const selExcl=new Set();let confirmaExclSel=false,tExclSel=null;
+function atualizarBarraExcl(){
+  for(const id of [...selExcl])if(!cadObras.some(o=>o.id===id))selExcl.delete(id);
+  const b=$("b-excl-sel"),n=selExcl.size;
+  confirmaExclSel=false;clearTimeout(tExclSel);
+  b.disabled=!n;b.textContent="Excluir selecionadas ("+n+")";b.classList.remove("confirmar-exclusao");
+  $("excl-todas").checked=n>0&&n===cadObras.length;
+}
+function modoExclusao(on){
+  modoExcl=on;selExcl.clear();$("barra-excluir").hidden=!on;$("b-excluir-obras").hidden=on;
+  if(on){$("f-obra-form").hidden=true;editandoId=null;}
+  msg("msg-obras","");renderObras2();
+}
+$("b-excluir-obras").onclick=()=>modoExclusao(true);
+$("b-excl-cancelar").onclick=()=>modoExclusao(false);
+$("excl-todas").onchange=e=>{selExcl.clear();if(e.target.checked)cadObras.forEach(o=>selExcl.add(o.id));renderObras2();};
+$("b-excl-sel").onclick=async()=>{
+  const b=$("b-excl-sel"),ids=[...selExcl];if(!ids.length)return;
+  if(!confirmaExclSel){
+    confirmaExclSel=true;b.textContent="Confirmar exclusão de "+ids.length+" obra"+(ids.length>1?"s":"");b.classList.add("confirmar-exclusao");
+    const n=todos.filter(r=>ids.some(id=>norm(r.idobra)===norm(id))).length;
+    msg("msg-obras","Excluir "+ids.length+" obra"+(ids.length>1?"s":"")+" ("+ids.join(", ")+")? "+(n?(n>1?"Elas têm "+n+" RDOs no total, que continuam guardados":"Elas têm 1 RDO, que continua guardado")+" na central e no Drive. ":"")+"As obras saem do cadastro e da lista dos encarregados. Clique de novo para confirmar.",true);
+    clearTimeout(tExclSel);tExclSel=setTimeout(()=>{atualizarBarraExcl();msg("msg-obras","");},10000);
+    return;
+  }
+  clearTimeout(tExclSel);b.disabled=true;msg("msg-obras","Excluindo "+ids.length+" obra"+(ids.length>1?"s":"")+"…");
+  try{
+    const j=await enviar({acao:"obraExcluir",ids});
+    cadObras=j.obras||[];if(j.usuarios)usuarios=j.usuarios;
+    modoExclusao(false);renderUsu();
+    msg("msg-obras",(j.excluidas||ids.length)+" obra"+((j.excluidas||ids.length)>1?"s excluídas":" excluída")+" do cadastro. Os RDOs continuam no painel e na planilha.");
+  }catch(err){msg("msg-obras","Não consegui excluir: "+err.message,true);atualizarBarraExcl();}
+};
 // excluir obra: dois cliques; os RDOs dela continuam guardados
 let exclObra=null,tExcl=null;
 function pedirExcluirObra(o,b){
@@ -173,7 +210,7 @@ function pedirExcluirObra(o,b){
 async function excluirObra(o,b){
   b.disabled=true;msg("msg-obras","Excluindo a obra "+o.id+"…");
   try{
-    const j=await enviar({acao:"obraExcluir",id:o.id});
+    const j=await enviar({acao:"obraExcluir",ids:[o.id]});
     cadObras=j.obras||[];if(j.usuarios)usuarios=j.usuarios;renderObras2();renderUsu();
     if(editandoId===o.id){$("f-obra-form").hidden=true;editandoId=null;}
     msg("msg-obras","Obra "+o.id+" excluída do cadastro. Os RDOs dela continuam no painel e na planilha.");

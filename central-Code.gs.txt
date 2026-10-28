@@ -395,16 +395,17 @@ function obrasParaCampo_(u) {
     .map(o => ({ id: o.id, obra: o.obra, local: o.local, ativa: true, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
 }
 
-// exclui a obra do cadastro; os RDOs, fotos e PDFs dela continuam guardados
-function excluirObra_(id) {
-  const k = norm_(id);
-  if (!k) return { ok: false, erro: "Informe a obra." };
+// exclui uma ou várias obras do cadastro; os RDOs, fotos e PDFs delas continuam guardados
+function excluirObras_(lista) {
+  const alvo = (Array.isArray(lista) ? lista : [lista]).map(norm_).filter(Boolean);
+  if (!alvo.length) return { ok: false, erro: "Escolha pelo menos uma obra." };
   const sh = abaObras_(), n = sh.getLastRow();
   const ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(l => norm_(l[0])) : [];
-  const i = ids.indexOf(k);
-  if (i < 0) return { ok: false, erro: "Obra " + limpa_(id, 40) + " não encontrada." };
-  sh.deleteRow(i + 2);
-  return { ok: true, obras: listarObras_(), usuarios: listarUsu_() };
+  const linhas = [];
+  ids.forEach((k, i) => { if (alvo.indexOf(k) >= 0) linhas.push(i + 2); });
+  if (!linhas.length) return { ok: false, erro: "Obra não encontrada." };
+  linhas.reverse().forEach(l => sh.deleteRow(l));   // de baixo para cima, para não deslocar as linhas
+  return { ok: true, excluidas: linhas.length, obras: listarObras_(), usuarios: listarUsu_() };
 }
 
 function salvarObra_(o) {
@@ -623,7 +624,7 @@ function acaoSupervisor_(b) {
   try {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
-    if (b.acao === "obraExcluir") return excluirObra_(b.id);
+    if (b.acao === "obraExcluir") return excluirObras_(b.ids || b.id);
     if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);
