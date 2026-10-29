@@ -395,6 +395,39 @@ function obrasParaCampo_(u) {
     .map(o => ({ id: o.id, obra: o.obra, local: o.local, ativa: true, ultimoRdo: ultimo[norm_(o.id)] || 0 }));
 }
 
+// exclui RDOs da central: a linha vai para a aba "RDOs excluídos" (lixeira) e as fotos e o PDF
+// vão para a lixeira do Google Drive (recuperáveis por 30 dias)
+const ABA_EXCLUIDOS = "RDOs excluídos";
+function excluirRdos_(uids) {
+  const alvo = new Set((Array.isArray(uids) ? uids : [uids]).map(u => limpa_(u, 80)).filter(Boolean));
+  if (!alvo.size) return { ok: false, erro: "Escolha pelo menos um RDO." };
+  const sh = aba_(), n = sh.getLastRow();
+  if (n < 2) return { ok: false, erro: "RDO não encontrado." };
+  const v = sh.getRange(2, 1, n - 1, COLUNAS.length).getValues();
+  const linhas = [];
+  v.forEach((l, i) => { if (alvo.has(String(l[0]))) linhas.push(i); });
+  if (!linhas.length) return { ok: false, erro: "RDO não encontrado (talvez já tenha sido excluído)." };
+  const ss = planilha_();
+  let lix = ss.getSheetByName(ABA_EXCLUIDOS);
+  if (!lix) {
+    lix = ss.insertSheet(ABA_EXCLUIDOS);
+    lix.getRange(1, 1, 1, TITULOS.length + 1).setValues([TITULOS.concat(["Excluído em"])])
+      .setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    lix.setFrozenRows(1);
+  }
+  const agora = new Date();
+  lix.getRange(lix.getLastRow() + 1, 1, linhas.length, COLUNAS.length + 1)
+    .setValues(linhas.map(i => v[i].concat([agora])));
+  linhas.forEach(i => {
+    const o = {}; COLUNAS.forEach((c, k) => o[c] = v[i][k]);
+    let fotos = []; try { fotos = JSON.parse(o.fotos || "[]"); } catch (e) { }
+    fotos.forEach(f => { if (f && f.id) { try { DriveApp.getFileById(f.id).setTrashed(true); } catch (e) { } } });
+    if (o.pdf) { try { DriveApp.getFileById(String(o.pdf)).setTrashed(true); } catch (e) { } }
+  });
+  linhas.slice().reverse().forEach(i => sh.deleteRow(i + 2));   // de baixo para cima
+  return { ok: true, excluidos: linhas.length };
+}
+
 // exclui uma ou várias obras do cadastro; os RDOs, fotos e PDFs delas continuam guardados
 function excluirObras_(lista) {
   const alvo = (Array.isArray(lista) ? lista : [lista]).map(norm_).filter(Boolean);
@@ -625,6 +658,7 @@ function acaoSupervisor_(b) {
     if (b.acao !== "senhaTrocar" && estadoSenha_().vencida) return { ok: false, erro: "senha vencida" };
     if (b.acao === "obraSalvar") return salvarObra_(b.obra || {});
     if (b.acao === "obraExcluir") return excluirObras_(b.ids || b.id);
+    if (b.acao === "rdoExcluir") return excluirRdos_(b.uids || b.uid);
     if (b.acao === "usuarioSalvar") return salvarUsu_(b.usuario || {});
     if (b.acao === "configSalvar") return salvarConfig_(b.config || {});
     if (b.acao === "emailTeste") return emailDiario(true);

@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#002B49">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=26">
 <style>
 /* Painel: filtros numa linha, indicadores, alertas, gráfico, resumo por obra, lista de RDOs */
 :root{--s1:#0073A8;--s2:#D08A1E;--s3:#2BA39B;--s4:#8A63B8;--grid:#E3E9EE;--warn:#B54708;--warn-bg:#FEF3E2}
@@ -137,13 +137,23 @@ tbody tr:hover{background:var(--chip)}
     </section>
 
     <section class="card">
-      <h2>Resumo por obra</h2>
-      <div class="tabela"><table><thead><tr><th>Obra</th><th class="n">RDOs</th><th>Último RDO</th><th class="n">Homem-dia</th><th class="n">Efetivo médio</th><th class="n">Dias chuva / impraticável</th><th class="n">Ocorrências</th></tr></thead><tbody id="t-obras"></tbody></table></div>
+      <div class="topo"><h2>Resumo por obra</h2><button type="button" class="btn sec perigo" id="b-excl-res">🗑 Excluir RDOs da obra</button></div>
+      <div class="barra-excluir" id="barra-res" hidden>
+        <span>Marque as obras. Serão excluídos <b>todos os RDOs delas no período filtrado acima</b> (o cadastro da obra não muda).</span>
+        <span class="topo-botoes"><button type="button" class="btn perigo-cheio" id="b-res-sel" disabled>Excluir RDOs selecionados (0)</button><button type="button" class="btn sec" id="b-res-cancelar">Cancelar</button></span>
+      </div>
+      <div class="msg" id="msg-res" role="status"></div>
+      <div class="tabela"><table id="tab-res"><thead><tr><th class="col-sel" hidden><input type="checkbox" id="res-todas" aria-label="Marcar todas"></th><th>Obra</th><th class="n">RDOs</th><th>Último RDO</th><th class="n">Homem-dia</th><th class="n">Efetivo médio</th><th class="n">Dias chuva / impraticável</th><th class="n">Ocorrências</th></tr></thead><tbody id="t-obras"></tbody></table></div>
     </section>
 
     <section class="card">
-      <h2>RDOs recebidos <span id="n-rdos"></span></h2>
-      <div class="tabela"><table><thead><tr><th>Data</th><th>Obra</th><th class="n">RDO</th><th>Responsável</th><th class="n">Efetivo</th><th>Tempo</th><th class="n">Fotos</th><th>Ocorrência</th></tr></thead><tbody id="t-rdos"></tbody></table></div>
+      <div class="topo"><h2>RDOs recebidos <span id="n-rdos"></span></h2><button type="button" class="btn sec perigo" id="b-excl-rdo">🗑 Excluir RDO</button></div>
+      <div class="barra-excluir" id="barra-rdo" hidden>
+        <span>Marque os RDOs que deseja excluir.</span>
+        <span class="topo-botoes"><button type="button" class="btn perigo-cheio" id="b-rdo-sel" disabled>Excluir selecionados (0)</button><button type="button" class="btn sec" id="b-rdo-cancelar">Cancelar</button></span>
+      </div>
+      <div class="msg" id="msg-rdo" role="status"></div>
+      <div class="tabela"><table id="tab-rdo"><thead><tr><th class="col-sel" hidden><input type="checkbox" id="rdo-todas" aria-label="Marcar todos"></th><th>Data</th><th>Obra</th><th class="n">RDO</th><th>Responsável</th><th class="n">Efetivo</th><th>Tempo</th><th class="n">Fotos</th><th>Ocorrência</th></tr></thead><tbody id="t-rdos"></tbody></table></div>
       <div class="msg" id="msg" role="status"></div>
     </section>
 
@@ -225,12 +235,12 @@ tbody tr:hover{background:var(--chip)}
     </section>
   </div>
 </div>
-  <p class="status" id="versao-painel" style="margin-top:8px">Versão do painel: 28/10/2026 21:10</p>
+  <p class="status" id="versao-painel" style="margin-top:8px">Versão do painel: 28/10/2026 21:45</p>
 </main>
 
 <div class="modal" id="modal" hidden><div class="box" id="modal-box"></div></div>
 
 <script src="config.js?v=10"></script>
-<script src="supervisor.js?v=25"></script>
+<script src="supervisor.js?v=26"></script>
 </body>
 </html>

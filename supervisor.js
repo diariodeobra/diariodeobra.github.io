@@ -448,15 +448,76 @@ function renderObras(L){
   const g={};
   L.forEach(r=>{const o=obraChave(r),x=g[o]=g[o]||{n:0,ult:"",hd:0,ruim:0,oc:0};x.n++;x.hd+=r.total;if(r.data>x.ult)x.ult=r.data;if(ruim(r.clima_manha)||ruim(r.clima_tarde))x.ruim++;if(String(r.ocor||"").trim())x.oc++;});
   const linhas=Object.entries(g).sort((a,b)=>obraNome(canon[a[0]]||{}).localeCompare(obraNome(canon[b[0]]||{}),"pt"));
-  $("t-obras").innerHTML=linhas.length?linhas.map(([o,x])=>`<tr data-o="${esc(o)}"><td>${esc(obraNome(canon[o]||{}))}</td><td class="n">${x.n}</td><td>${fmt(x.ult)}</td><td class="n">${x.hd}</td><td class="n">${(x.hd/x.n).toFixed(1).replace(".",",")}</td><td class="n">${x.ruim}</td><td class="n">${x.oc}</td></tr>`).join(""):'<tr><td colspan="7" class="status">Nenhum RDO no período.</td></tr>';
-  $("t-obras").querySelectorAll("tr[data-o]").forEach(tr=>tr.onclick=()=>{$("f-obra").value=tr.dataset.o;render();});
+  ultimoL=L;
+  const R=EX.res;document.querySelector("#tab-res .col-sel").hidden=!R.on;
+  for(const k of [...R.sel])if(!g[k])R.sel.delete(k);
+  $("t-obras").innerHTML=linhas.length?linhas.map(([o,x])=>`<tr data-o="${esc(o)}"${R.on&&R.sel.has(o)?' class="marcada"':''}>${R.on?`<td class="col-sel"><input type="checkbox" data-sel="${esc(o)}"${R.sel.has(o)?" checked":""}></td>`:""}<td>${esc(obraNome(canon[o]||{}))}</td><td class="n">${x.n}</td><td>${fmt(x.ult)}</td><td class="n">${x.hd}</td><td class="n">${(x.hd/x.n).toFixed(1).replace(".",",")}</td><td class="n">${x.ruim}</td><td class="n">${x.oc}</td></tr>`).join(""):'<tr><td colspan="7" class="status">Nenhum RDO no período.</td></tr>';
+  $("t-obras").querySelectorAll("tr[data-o]").forEach(tr=>tr.onclick=e=>{
+    if(R.on){const c=tr.querySelector("input");if(e.target!==c)c.checked=!c.checked;marcar("res",tr.dataset.o,c.checked,tr);return;}
+    $("f-obra").value=tr.dataset.o;render();});
+  barraEx("res");
 }
 
 function renderLista(L){
   $("n-rdos").textContent="("+L.length+")";
-  $("t-rdos").innerHTML=L.length?L.map((r,i)=>`<tr data-i="${i}"><td>${fmt(r.data)}</td><td>${esc(obraNome(r))}</td><td class="n">${esc(r.rdo)}</td><td>${esc(r.resp)}</td><td class="n">${r.total}</td><td>${esc(semIcone(r.clima_manha)||"-")} / ${esc(semIcone(r.clima_tarde)||"-")}</td><td class="n">${num(r.n_fotos)}</td><td>${String(r.ocor||"").trim()?'<span class="pill alert">Sim</span>':"-"}</td></tr>`).join(""):'<tr><td colspan="8" class="status">Nenhum RDO no período.</td></tr>';
-  $("t-rdos").querySelectorAll("tr[data-i]").forEach(tr=>tr.onclick=()=>abrir(L[+tr.dataset.i]));
+  const R=EX.rdo;document.querySelector("#tab-rdo .col-sel").hidden=!R.on;listaAtual=L;
+  for(const u of [...R.sel])if(!L.some(r=>r.uid===u))R.sel.delete(u);
+  $("t-rdos").innerHTML=L.length?L.map((r,i)=>`<tr data-i="${i}"${R.on&&R.sel.has(r.uid)?' class="marcada"':''}>${R.on?`<td class="col-sel"><input type="checkbox"${R.sel.has(r.uid)?" checked":""}></td>`:""}<td>${fmt(r.data)}</td><td>${esc(obraNome(r))}</td><td class="n">${esc(r.rdo)}</td><td>${esc(r.resp)}</td><td class="n">${r.total}</td><td>${esc(semIcone(r.clima_manha)||"-")} / ${esc(semIcone(r.clima_tarde)||"-")}</td><td class="n">${num(r.n_fotos)}</td><td>${String(r.ocor||"").trim()?'<span class="pill alert">Sim</span>':"-"}</td></tr>`).join(""):'<tr><td colspan="8" class="status">Nenhum RDO no período.</td></tr>';
+  $("t-rdos").querySelectorAll("tr[data-i]").forEach(tr=>tr.onclick=e=>{
+    const r=L[+tr.dataset.i];
+    if(R.on){const c=tr.querySelector("input");if(e.target!==c)c.checked=!c.checked;marcar("rdo",r.uid,c.checked,tr);return;}
+    abrir(r);});
+  barraEx("rdo");
 }
+
+/* ---------- excluir RDOs (lista de RDOs e resumo por obra) ---------- */
+const EX={rdo:{on:false,sel:new Set(),conf:false,t:null},res:{on:false,sel:new Set(),conf:false,t:null}};
+let ultimoL=[],listaAtual=[];
+const plural=(n,s,p)=>n+" "+(n===1?s:p);
+function uidsDe(tipo){
+  const R=EX[tipo];
+  if(tipo==="rdo")return [...R.sel];
+  return ultimoL.filter(r=>R.sel.has(obraChave(r))).map(r=>r.uid).filter(Boolean);
+}
+function barraEx(tipo){
+  const R=EX[tipo];if(!R.on)return;
+  const b=$(tipo==="rdo"?"b-rdo-sel":"b-res-sel"),n=uidsDe(tipo).length;
+  R.conf=false;clearTimeout(R.t);b.classList.remove("confirmar-exclusao");b.disabled=!n;
+  b.textContent=tipo==="rdo"?"Excluir selecionados ("+n+")":"Excluir RDOs selecionados ("+n+")";
+  const tot=tipo==="rdo"?listaAtual.length:new Set(ultimoL.map(obraChave)).size;
+  $(tipo==="rdo"?"rdo-todas":"res-todas").checked=R.sel.size>0&&R.sel.size===tot;
+}
+function marcar(tipo,k,on,tr){const R=EX[tipo];if(on)R.sel.add(k);else R.sel.delete(k);tr.classList.toggle("marcada",on);barraEx(tipo);msg(tipo==="rdo"?"msg-rdo":"msg-res","");}
+function modoEx(tipo,on){
+  const R=EX[tipo];R.on=on;R.sel.clear();R.conf=false;clearTimeout(R.t);
+  $(tipo==="rdo"?"barra-rdo":"barra-res").hidden=!on;$(tipo==="rdo"?"b-excl-rdo":"b-excl-res").hidden=on;
+  msg(tipo==="rdo"?"msg-rdo":"msg-res","");render();
+}
+$("b-excl-rdo").onclick=()=>modoEx("rdo",true);
+$("b-rdo-cancelar").onclick=()=>modoEx("rdo",false);
+$("b-excl-res").onclick=()=>modoEx("res",true);
+$("b-res-cancelar").onclick=()=>modoEx("res",false);
+$("rdo-todas").onchange=e=>{EX.rdo.sel.clear();if(e.target.checked)listaAtual.forEach(r=>r.uid&&EX.rdo.sel.add(r.uid));render();};
+$("res-todas").onchange=e=>{EX.res.sel.clear();if(e.target.checked)ultimoL.forEach(r=>EX.res.sel.add(obraChave(r)));render();};
+async function confirmarExcluirRdos(tipo,uids,botao,caixa,aoTerminar){
+  const R=EX[tipo]||{};
+  if(!R.conf){
+    R.conf=true;botao.textContent="Confirmar exclusão de "+plural(uids.length,"RDO","RDOs");botao.classList.add("confirmar-exclusao");
+    msg(caixa,"Excluir "+plural(uids.length,"RDO","RDOs")+"? "+(uids.length===1?"Ele sai do painel e da planilha (fica guardado":"Eles saem do painel e da planilha (ficam guardados")+" na aba \"RDOs excluídos\" da planilha), e as fotos e o PDF vão para a lixeira do Google Drive (recuperáveis por 30 dias). Clique de novo para confirmar.",true);
+    clearTimeout(R.t);R.t=setTimeout(()=>{R.conf=false;if(tipo==="det"){botao.textContent="Excluir este RDO";botao.classList.remove("confirmar-exclusao");msg(caixa,"");}else{barraEx(tipo);msg(caixa,"");}},10000);
+    return;
+  }
+  clearTimeout(R.t);R.conf=false;botao.disabled=true;msg(caixa,"Excluindo "+plural(uids.length,"RDO","RDOs")+"…");
+  try{
+    const j=await enviar({acao:"rdoExcluir",uids});
+    if(aoTerminar)aoTerminar();
+    await carregar();
+    msg(tipo==="det"?"msg-rdo":caixa,plural(j.excluidos||uids.length,"RDO excluído","RDOs excluídos")+". Para recuperar, use a aba \"RDOs excluídos\" da planilha.");
+  }catch(err){msg(caixa,"Não consegui excluir: "+err.message,true);botao.disabled=false;if(tipo!=="det")barraEx(tipo);}
+}
+EX.det={conf:false,t:null};
+$("b-rdo-sel").onclick=()=>confirmarExcluirRdos("rdo",uidsDe("rdo"),$("b-rdo-sel"),"msg-rdo",()=>{EX.rdo.on=false;EX.rdo.sel.clear();$("barra-rdo").hidden=true;$("b-excl-rdo").hidden=false;});
+$("b-res-sel").onclick=()=>confirmarExcluirRdos("res",uidsDe("res"),$("b-res-sel"),"msg-res",()=>{EX.res.on=false;EX.res.sel.clear();$("barra-res").hidden=true;$("b-excl-res").hidden=false;});
 
 /* ---------- detalhe ---------- */
 function abrir(r){
@@ -464,7 +525,8 @@ function abrir(r){
   const campo=(t,v)=>`<div><span>${t}</span>${esc(v||"-")}</div>`;
   const bloco=(t,v)=>v&&String(v).trim()?`<div><div class="det"><div><span>${t}</span></div></div><div class="txt">${esc(v)}</div></div>`:"";
   $("modal-box").innerHTML=`
-    <div class="topo"><h3>RDO ${esc(r.rdo)} · ${esc(obraNome(r))}</h3><button type="button" class="btn sec" id="m-fechar">Fechar</button></div>
+    <div class="topo"><h3>RDO ${esc(r.rdo)} · ${esc(obraNome(r))}</h3><span class="topo-botoes"><button type="button" class="btn sec perigo" id="m-excluir">Excluir este RDO</button><button type="button" class="btn sec" id="m-fechar">Fechar</button></span></div>
+    <div class="msg" id="m-msg-ex" role="status"></div>
     <div class="det">
       ${campo("ID",r.idobra)}${campo("Obra",r.obra)}${campo("Local",r.local)}${campo("Data",fmt(r.data))}
       ${campo("Responsável",r.resp)}${campo("Expediente",(r.hini||"?")+" às "+(r.hfim||"?"))}
@@ -479,6 +541,8 @@ function abrir(r){
     <div class="msg" id="m-msg" role="status"></div>`;
   $("modal").hidden=false;
   $("m-fechar").onclick=fechar;
+  EX.det.conf=false;clearTimeout(EX.det.t);
+  $("m-excluir").onclick=()=>confirmarExcluirRdos("det",[r.uid],$("m-excluir"),"m-msg-ex",()=>{fechar();});
   if(r.pdf)$("m-pdf").onclick=async()=>{
     const b=$("m-pdf");b.disabled=true;msg("m-msg","Baixando o PDF…");
     try{

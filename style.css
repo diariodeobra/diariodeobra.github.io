@@ -162,3 +162,5 @@ header .wrap{position:relative}
   #tab-cad-obras tr.marcada{background:rgba(179,38,30,.08);border-color:#B3261E}
   #tab-cad-obras tr.marcada td{background:none}
 }
+#tab-rdo tr.marcada td,#tab-res tr.marcada td{background:rgba(179,38,30,.08)}
+#tab-rdo .col-sel,#tab-res .col-sel{cursor:pointer}
