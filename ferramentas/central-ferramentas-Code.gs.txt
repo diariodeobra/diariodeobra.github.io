@@ -1,0 +1,579 @@
+/**
+ * Controle de Ferramentas ECTAS - Base central
+ * Recebe as conferências de kit e as ocorrências do app do técnico,
+ * guarda tudo numa planilha própria e as assinaturas e fotos numa pasta do Google Drive.
+ * O Painel do Supervisor lê e altera os dados daqui, protegido por senha.
+ *
+ * Mesmo modelo do Diário de Obra ECTAS, com cadastro de usuários separado.
+ * Instalação: cole este código num projeto novo do Apps Script, rode "configurar"
+ * uma vez e implante como App da Web (executar como: eu; quem pode acessar: qualquer pessoa).
+ */
+const CHAVE_CAMPO = "ectas-ferramentas-campo-2026";
+const DIAS_VALIDADE_SENHA = 90;   // a senha do painel vence a cada 3 meses
+const DIAS_AVISO_SENHA = 7;
+const DIAS_SESSAO = 30;           // sessão do técnico no celular
+const PRAZO_CONFERENCIA = 7;      // dias entre conferências de um kit
+const EMAIL_DONO = "diariodeobra.ectas@gmail.com"; // recebe o código de recuperação se nenhum outro for cadastrado
+const NOME_PLANILHA = "Controle de Ferramentas ECTAS - Base";
+const PASTA_ARQ = "Controle de Ferramentas ECTAS - Assinaturas e fotos";
+const PASTA_BACKUP = "Controle de Ferramentas ECTAS - Backups";
+const BACKUPS_MANTER = 12;
+const PAINEL_URL = "https://diariodeobra.github.io/ferramentas/supervisor.html";
+const TZ = "America/Sao_Paulo";
+
+/* ---------- abas da planilha ---------- */
+const T = {
+  ferramentas: { aba: "Ferramentas", cols: ["id", "item", "descricao", "qtd", "grupo", "ativa"],
+    tit: ["ID", "Item", "Descrição", "Qtd fixa", "Grupo (permanente, almox ou individual)", "Ativa"] },
+  kits: { aba: "Kits", cols: ["id", "nome", "responsavel", "local", "tecnicos", "ordem", "ativo"],
+    tit: ["ID", "Kit", "Responsável", "Local / equipe", "Técnicos que podem conferir (logins)", "Ordem", "Ativo"] },
+  pecas: { aba: "Peças", cols: ["codigo", "ferramenta", "kit", "situacao", "criado_em", "obs"],
+    tit: ["Código", "ID ferramenta", "ID kit", "Situação (ativa, manutencao, baixada)", "Cadastrada em", "Observação"] },
+  tecnicos: { aba: "Técnicos", cols: ["login", "nome", "ativo", "hash", "sal", "versao"],
+    tit: ["Usuário (login)", "Nome", "Ativo", "Senha (protegida)", "Sal", "Versão"] },
+  conf: { aba: "Conferências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "tecnico", "login", "local",
+      "lidas", "esperadas", "pendencias", "obs", "itens", "pecas", "alheias", "assinatura", "status", "comentario", "revisado_em"],
+    tit: ["Código interno", "Recebida em", "Feita em", "ID kit", "Kit", "Tipo", "Técnico", "Usuário", "Obra / local",
+      "Etiquetas lidas", "Etiquetas esperadas", "Pendências", "Observações", "Itens (dados)", "Peças (dados)", "Peças de outro kit",
+      "Assinatura (arquivo)", "Situação", "Comentário do supervisor", "Revisada em"] },
+  oc: { aba: "Ocorrências", cols: ["uid", "recebido_em", "criado_em", "kit", "kit_nome", "tipo", "ferramenta", "ferramenta_desc", "codigo",
+      "qtd", "descricao", "tecnico", "login", "foto", "status", "comentario", "atualizado_em"],
+    tit: ["Código interno", "Recebida em", "Feita em", "ID kit", "Kit", "Tipo", "ID ferramenta", "Ferramenta", "Código da peça",
+      "Quantidade", "Descrição", "Técnico", "Usuário", "Foto (arquivo)", "Situação", "Providência do supervisor", "Atualizada em"] }
+};
+
+/* ---------- carga inicial (planilha de ferramentas de 12/11/2026) ---------- */
+const CARGA_FERRAMENTAS = [["t01",1,"Alicate Bico 6 polegadas",1,"permanente"],["t02",2,"Alicate Corte Diagonal 6 polegadas",2,"permanente"],["t03",3,"Alicate Crimpador (Ilhois) - 0,5 até 16mm²",1,"permanente"],["t04",4,"Alicate Crimpador (Olhais) 0,5 até 16mm²",1,"permanente"],["t05",5,"Alicate de Pressão 10 polegadas",1,"permanente"],["t06",6,"Alicate Universal 8 polegadas",2,"permanente"],["t07",7,"Alicate bico de papagaio 12 polegadas",1,"permanente"],["t08",8,"Arco de Serra Manual 12 polegadas",1,"permanente"],["t09",9,"Bateria Furadeira e Parafusadeira",4,"permanente"],["t10",10,"Kit de brocas aço rapido (4mm a 10mm) e vidia (4mm a 10mm)",1,"permanente"],["t11",11,"Carregador de Bateria",1,"permanente"],["t12",12,"Kit chave ALLEN ( 1/16 polegadas a 3/8 polegadas)",1,"permanente"],["t13",13,"Chave Corrente 5 polegadas",2,"permanente"],["t14",14,"Chave de Borne 3mm x 75mm",1,"permanente"],["t15",15,"Chave de Fenda 8 x 150 mm",1,"permanente"],["t16",16,"Chave de Fenda Isolada 6 x 150 mm",1,"permanente"],["t17",17,"Chave Grifo 14 polegadas",1,"permanente"],["t18",18,"Chave Inglesa 12\"",1,"permanente"],["t19",19,"Chave de Mandril",2,"permanente"],["t20",20,"Chave Phillips M",1,"permanente"],["t21",21,"Chave Phillips Isolada G",1,"permanente"],["t22",22,"Chave Phillips Isolada P",1,"permanente"],["t23",23,"Cinta com Catraca",2,"permanente"],["t24",24,"Conector Serra Copo (32 a 114mm) e ( 20mm a 35mm)",2,"permanente"],["t25",25,"Esmerilhadeira Elétrica 850W 220V",1,"permanente"],["t26",26,"Esmerilhadeira bateria (18V a 20V)",1,"permanente"],["t27",27,"Espátula",1,"permanente"],["t28",28,"Esquadro 12 polegadas",1,"permanente"],["t29",29,"Estilete 6 polegadas",1,"permanente"],["t30",30,"Furadeira Bateria 18 V",1,"permanente"],["t31",31,"Furadeira Elétrica 750W",1,"permanente"],["t32",32,"Furadeira Elétrica - impacto 820W",1,"permanente"],["t33",33,"Groza (254mm)",1,"permanente"],["t34",34,"Jogo da Chaves Combinada 6 a 32mm",1,"permanente"],["t35",35,"Lima 8 polegadas",1,"permanente"],["t36",36,"Maleta de Chaves de Catraca 8 a 32 mm",1,"permanente"],["t37",37,"Martelo 27mm",1,"permanente"],["t38",38,"Martelo de Borracha 50mm",1,"permanente"],["t39",39,"Marreta 1kg",1,"permanente"],["t40",40,"Múltimetro MDV 0610",1,"permanente"],["t41",41,"Nível Bolha 50 cm",2,"permanente"],["t42",42,"Parafusadeira a Bateria 18V",1,"permanente"],["t43",43,"Parafusadeira Elétrica 1500 RPM",1,"permanente"],["t44",44,"Punho de Lixadeira",1,"permanente"],["t45",45,"Soprador térmico 2000W",1,"permanente"],["t46",46,"Ponteia",1,"permanente"],["t47",47,"Talhadeira",1,"permanente"],["t48",48,"Régua elétrica",1,"permanente"],["t49",49,"Trena - 50m",1,"permanente"],["t50",50,"Caneta permanente",1,"permanente"],["t51",51,"Linha de nylon",1,"permanente"],["t52",52,"Bolsa para ferramentas - aeroporto",1,"permanente"],["a01","","BIT 8, 10 e 11",1,"almox"],["a02","","Kit serra copo (alvenaria e metal)",1,"almox"],["a03","","Lápis",1,"almox"],["a04","","Trena 5 m",1,"individual"]];
+const CARGA_KITS = [["k1", "KIT 1"], ["k2", "KIT 2"], ["k3", "KIT 3"]];
+
+/* ---------- utilidades ---------- */
+function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k) || ""; }
+function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function limpa_(s, max) { return String(s == null ? "" : s).slice(0, max || 5000); }
+function agora_() { return new Date().toISOString(); }
+function jsonLer_(s, padrao) { try { const v = JSON.parse(s || ""); return v == null ? padrao : v; } catch (e) { return padrao; } }
+
+function planilha_() {
+  const pr = PropertiesService.getScriptProperties();
+  const id = pr.getProperty("PLANILHA_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { } }
+  const ss = SpreadsheetApp.create(NOME_PLANILHA);
+  pr.setProperty("PLANILHA_ID", ss.getId());
+  return ss;
+}
+
+function aba_(t) {
+  const def = T[t], ss = planilha_();
+  let sh = ss.getSheetByName(def.aba);
+  if (!sh) {
+    sh = ss.insertSheet(def.aba);
+    ["Página1", "Sheet1", "Planilha1"].forEach(n => { const p = ss.getSheetByName(n); if (p && ss.getSheets().length > 1) ss.deleteSheet(p); });
+    sh.getRange(1, 1, 1, def.tit.length).setValues([def.tit]).setFontWeight("bold").setBackground("#002B49").setFontColor("#FFFFFF");
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), def.cols.length).setNumberFormat("@");
+    if (t === "tecnicos") sh.hideColumns(4, 3);
+    if (t === "conf") { sh.hideColumns(1); sh.hideColumns(14, 2); }
+    if (t === "oc") sh.hideColumns(1);
+  }
+  return sh;
+}
+
+function valor_(v) { return v instanceof Date ? v.toISOString() : v; }
+
+function ler_(t) {
+  const def = T[t], sh = aba_(t), n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, def.cols.length).getValues().map((l, i) => {
+    const o = { _linha: i + 2 };
+    def.cols.forEach((c, k) => o[c] = valor_(l[k]));
+    return o;
+  }).filter(o => String(o[def.cols[0]]).trim() !== "");
+}
+
+function gravar_(t, o, linha) {
+  const def = T[t], sh = aba_(t);
+  // texto que começa com = + - @ entra como texto, nunca como fórmula
+  const v = [def.cols.map(c => { const x = o[c] == null ? "" : (typeof o[c] === "object" ? JSON.stringify(o[c]) : o[c]);
+    return typeof x === "string" && /^[=+\-@]/.test(x) ? "'" + x : x; })];
+  if (linha) sh.getRange(linha, 1, 1, def.cols.length).setValues(v);
+  else { sh.appendRow(v[0]); linha = sh.getLastRow(); sh.getRange(linha, 1, 1, def.cols.length).setNumberFormat("@").setValues(v); }
+  return linha;
+}
+
+// garante linhas suficientes antes de escrever um bloco no fim da aba
+function bloco_(sh, ini, n, cols) {
+  const falta = ini + n - 1 - sh.getMaxRows();
+  if (falta > 0) sh.insertRowsAfter(sh.getMaxRows(), falta);
+  return sh.getRange(ini, 1, n, cols);
+}
+
+function pasta_(nome) { const it = DriveApp.getFoldersByName(nome); return it.hasNext() ? it.next() : DriveApp.createFolder(nome); }
+
+function salvarArquivo_(b64, tipo, nome) {
+  if (!b64) return "";
+  const blob = Utilities.newBlob(Utilities.base64Decode(String(b64)), tipo, nome);
+  return pasta_(PASTA_ARQ).createFile(blob).getId();
+}
+
+/* ---------- leitura em formato do app ---------- */
+function ferramentas_() {
+  return ler_("ferramentas").map(f => ({ id: String(f.id).trim(), item: f.item === "" ? null : Number(f.item), desc: String(f.descricao),
+    qtd: Number(f.qtd) || 0, grupo: String(f.grupo || "permanente").trim().toLowerCase(), ativa: !/^n/i.test(String(f.ativa)) }));
+}
+function kits_() {
+  return ler_("kits").map(k => ({ id: String(k.id).trim(), nome: String(k.nome), responsavel: String(k.responsavel || ""), local: String(k.local || ""),
+    tecnicos: String(k.tecnicos || "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean),
+    ordem: Number(k.ordem) || 0, ativo: !/^n/i.test(String(k.ativo)) })).sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome, "pt"));
+}
+function pecas_() {
+  return ler_("pecas").map(p => ({ codigo: String(p.codigo).trim(), ferramenta: String(p.ferramenta), kit: String(p.kit),
+    situacao: String(p.situacao || "ativa").trim().toLowerCase(), criado_em: String(p.criado_em || ""), obs: String(p.obs || "") }));
+}
+function conf_(c) {
+  return { uid: String(c.uid), recebido_em: String(c.recebido_em), criado_em: String(c.criado_em), kit: String(c.kit), kit_nome: String(c.kit_nome),
+    tipo: String(c.tipo), tecnico: String(c.tecnico), login: String(c.login), local: String(c.local || ""), lidas: Number(c.lidas) || 0,
+    esperadas: Number(c.esperadas) || 0, pendencias: Number(c.pendencias) || 0, obs: String(c.obs || ""), itens: jsonLer_(c.itens, {}),
+    pecas: jsonLer_(c.pecas, {}), alheias: jsonLer_(c.alheias, []), assinatura: String(c.assinatura || ""), status: String(c.status || "pendente"),
+    comentario: String(c.comentario || ""), revisado_em: String(c.revisado_em || "") };
+}
+function oc_(o) {
+  return { uid: String(o.uid), recebido_em: String(o.recebido_em), criado_em: String(o.criado_em), kit: String(o.kit), kit_nome: String(o.kit_nome),
+    tipo: String(o.tipo), ferramenta: String(o.ferramenta), ferramenta_desc: String(o.ferramenta_desc), codigo: String(o.codigo || ""),
+    qtd: Number(o.qtd) || 1, descricao: String(o.descricao || ""), tecnico: String(o.tecnico), login: String(o.login), foto: String(o.foto || ""),
+    status: String(o.status || "aberta"), comentario: String(o.comentario || ""), atualizado_em: String(o.atualizado_em || "") };
+}
+const kitPermitido_ = (k, u) => !!k && k.ativo && (!k.tecnicos.length || k.tecnicos.indexOf(u.login) >= 0);
+
+/* ---------- app do técnico ---------- */
+function doPost(e) {
+  let b;
+  try { b = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, erro: "formato inválido" }); }
+  if (!b) return json_({ ok: false, erro: "formato inválido" });
+  if (b.acao === "recuperarPedir" || b.acao === "recuperarConfirmar") {
+    const lk = LockService.getScriptLock(); lk.waitLock(20000);
+    try { return json_(recuperar_(b)); } finally { lk.releaseLock(); }
+  }
+  if (b.acao === "definirSenha") {
+    if (prop_("SENHA_SUPERVISOR")) return json_({ ok: false, erro: "A senha do painel já foi criada." });
+    if (String(b.nova || "").length < 6) return json_({ ok: false, erro: "A senha precisa ter pelo menos 6 caracteres." });
+    definirSenha_(b.nova); return json_({ ok: true });
+  }
+  if (b.painel) return json_(acaoSupervisor_(b));
+  if (b.chave !== CHAVE_CAMPO) return json_({ ok: false, erro: "chave inválida" });
+  if (b.acao === "login") return json_(login_(b));
+  const u = sessao_(b.token);
+  if (!u) return json_({ ok: false, erro: "sessao" });
+  if (b.acao === "dados") return json_(dadosCampo_(u));
+  if (b.acao === "meus") return json_(meus_(u));
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (b.acao === "conferencia") return json_(salvarConf_(b.conf || {}, u));
+    if (b.acao === "ocorrencia") return json_(salvarOc_(b.oc || {}, u));
+    return json_({ ok: false, erro: "ação desconhecida" });
+  } finally { lock.releaseLock(); }
+}
+
+function doGet(e) {
+  return json_({ ok: true, app: "Controle de Ferramentas ECTAS", senhaCriada: !!prop_("SENHA_SUPERVISOR") });
+}
+
+function dadosCampo_(u) {
+  const kits = kits_();
+  return { ok: true, usuario: { login: u.login, nome: u.nome }, prazo: PRAZO_CONFERENCIA,
+    ferramentas: ferramentas_().filter(f => f.ativa),
+    kits: kits.filter(k => k.ativo).map(k => ({ id: k.id, nome: k.nome, responsavel: k.responsavel, local: k.local, permitido: kitPermitido_(k, u) })),
+    pecas: pecas_() };
+}
+
+function meus_(u) {
+  const lim = new Date(Date.now() - 90 * 864e5).toISOString();
+  const confs = ler_("conf").filter(c => String(c.login) === u.login && String(c.criado_em) >= lim).map(conf_)
+    .map(c => ({ uid: c.uid, criado_em: c.criado_em, kit_nome: c.kit_nome, tipo: c.tipo, local: c.local, lidas: c.lidas, esperadas: c.esperadas,
+      pendencias: c.pendencias, itens: c.itens, pecas: c.pecas, alheias: c.alheias, status: c.status, comentario: c.comentario, revisado_em: c.revisado_em }));
+  const ocs = ler_("oc").filter(o => String(o.login) === u.login && String(o.criado_em) >= lim).map(oc_)
+    .map(o => { delete o.foto; return o; });
+  return { ok: true, conferencias: confs, ocorrencias: ocs };
+}
+
+function salvarConf_(c, u) {
+  const uid = limpa_(c.uid, 80);
+  if (!uid) return { ok: false, erro: "sem uid" };
+  if (ler_("conf").some(x => String(x.uid) === uid)) return { ok: true, uid: uid, repetido: true };   // reenvio da fila
+  const kit = kits_().find(k => k.id === String(c.kit));
+  if (!kit) return { ok: false, codigo: "kit", erro: "Kit não encontrado. Atualize o app." };
+  if (!kitPermitido_(kit, u)) return { ok: false, codigo: "kit", erro: "Você não está liberado para conferir o " + kit.nome + "." };
+  const criado = limpa_(c.criado_em, 40) || agora_();
+  const ass = c.assinatura ? salvarArquivo_(c.assinatura, "image/jpeg",
+    "Assinatura " + kit.nome + " " + criado.slice(0, 10) + " " + u.nome + ".jpg") : "";
+  gravar_("conf", {
+    uid: uid, recebido_em: agora_(), criado_em: criado, kit: kit.id, kit_nome: kit.nome, tipo: limpa_(c.tipo, 60),
+    tecnico: u.nome, login: u.login, local: limpa_(c.local, 120), lidas: Number(c.lidas) || 0, esperadas: Number(c.esperadas) || 0,
+    pendencias: Number(c.pendencias) || 0, obs: limpa_(c.obs, 2000), itens: JSON.stringify(c.itens || {}).slice(0, 45000),
+    pecas: JSON.stringify(c.pecas || {}).slice(0, 45000), alheias: JSON.stringify(c.alheias || []).slice(0, 5000),
+    assinatura: ass, status: "pendente", comentario: "", revisado_em: ""
+  });
+  return { ok: true, uid: uid };
+}
+
+function salvarOc_(o, u) {
+  const uid = limpa_(o.uid, 80);
+  if (!uid) return { ok: false, erro: "sem uid" };
+  if (ler_("oc").some(x => String(x.uid) === uid)) return { ok: true, uid: uid, repetido: true };
+  const kit = kits_().find(k => k.id === String(o.kit));
+  const f = ferramentas_().find(x => x.id === String(o.ferramenta));
+  if (!f) return { ok: false, codigo: "ferramenta", erro: "Ferramenta não encontrada. Atualize o app." };
+  const criado = limpa_(o.criado_em, 40) || agora_();
+  const foto = o.foto ? salvarArquivo_(o.foto, "image/jpeg", "Ocorrência " + criado.slice(0, 10) + " " + f.desc.slice(0, 40) + " " + u.nome + ".jpg") : "";
+  gravar_("oc", {
+    uid: uid, recebido_em: agora_(), criado_em: criado, kit: kit ? kit.id : "", kit_nome: kit ? kit.nome : "", tipo: limpa_(o.tipo, 60),
+    ferramenta: f.id, ferramenta_desc: f.desc, codigo: limpa_(o.codigo, 20), qtd: Math.max(1, Number(o.qtd) || 1),
+    descricao: limpa_(o.descricao, 2000), tecnico: u.nome, login: u.login, foto: foto, status: "aberta", comentario: "", atualizado_em: ""
+  });
+  return { ok: true, uid: uid };
+}
+
+/* ---------- técnicos: usuário e senha ---------- */
+function hash_(senha, sal) {
+  return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sal + "|" + senha, Utilities.Charset.UTF_8));
+}
+function lerUsuarios_() {
+  return ler_("tecnicos").map(l => ({ linha: l._linha, login: String(l.login).trim().toLowerCase(), nome: String(l.nome).trim(),
+    ativo: !/^n/i.test(String(l.ativo).trim()), hash: String(l.hash), sal: String(l.sal), versao: Number(l.versao) || 1 }));
+}
+function listarUsu_() {
+  return lerUsuarios_().map(u => ({ login: u.login, nome: u.nome, ativo: u.ativo, temSenha: !!u.hash }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
+}
+function salvarUsu_(d) {
+  const login = String(d.login || "").trim().toLowerCase();
+  const nome = limpa_(d.nome, 80).trim();
+  if (!/^[a-z0-9._-]{3,30}$/.test(login)) return { ok: false, erro: "Usuário deve ter de 3 a 30 letras minúsculas, números, ponto, hífen ou sublinhado (sem espaço)." };
+  if (!nome) return { ok: false, erro: "Informe o nome do técnico." };
+  const todos = lerUsuarios_();
+  const orig = String(d.loginOriginal || "").trim().toLowerCase();
+  const atual = todos.find(x => x.login === (orig || login));
+  if (todos.some(x => x.login === login && x !== atual)) return { ok: false, erro: "Já existe o usuário " + login + "." };
+  const senha = String(d.senha || "");
+  if (!atual && senha.length < 6) return { ok: false, erro: "Defina uma senha com pelo menos 6 caracteres." };
+  if (senha && senha.length < 6) return { ok: false, erro: "A senha precisa ter pelo menos 6 caracteres." };
+  let hash = atual ? atual.hash : "", sal = atual ? atual.sal : "", versao = atual ? atual.versao : 1;
+  if (senha) { sal = Utilities.getUuid(); hash = hash_(senha, sal); versao++; }   // nova senha encerra as sessões abertas
+  const ativo = d.ativo !== false;
+  if (atual && atual.ativo && !ativo) versao++;
+  gravar_("tecnicos", { login: login, nome: nome, ativo: ativo ? "Sim" : "Não", hash: hash, sal: sal, versao: versao }, atual ? atual.linha : 0);
+  if (atual && atual.login !== login) {   // login mudou: atualiza a lista de técnicos dos kits
+    ler_("kits").forEach(k => {
+      const l = String(k.tecnicos || "").split(/[,;\s]+/).filter(Boolean).map(x => x.toLowerCase() === atual.login ? login : x);
+      if (l.join(", ") !== String(k.tecnicos || "")) { k.tecnicos = l.join(", "); gravar_("kits", k, k._linha); }
+    });
+  }
+  return { ok: true };
+}
+function login_(b) {
+  const login = String(b.usuario || "").trim().toLowerCase();
+  const cache = CacheService.getScriptCache(), k = "falhas_" + login;
+  const falhas = Number(cache.get(k) || 0);
+  if (falhas >= 8) return { ok: false, erro: "Muitas tentativas. Aguarde 15 minutos ou peça ao supervisor para redefinir a senha." };
+  const u = lerUsuarios_().find(x => x.login === login);
+  if (!u || !u.ativo || !u.hash || hash_(String(b.senha || ""), u.sal) !== u.hash) {
+    cache.put(k, String(falhas + 1), 900);
+    return { ok: false, erro: u && !u.ativo ? "Usuário desativado. Fale com o supervisor." : "Usuário ou senha incorretos." };
+  }
+  cache.remove(k);
+  limparSessoes_();
+  const token = Utilities.getUuid() + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("tk_" + token, JSON.stringify({ l: u.login, v: u.versao, exp: Date.now() + DIAS_SESSAO * 864e5 }));
+  return { ok: true, token: token, usuario: { login: u.login, nome: u.nome } };
+}
+function sessao_(token) {
+  if (!token || !/^[0-9a-f-]{20,}$/i.test(String(token))) return null;
+  const pr = PropertiesService.getScriptProperties();
+  const raw = pr.getProperty("tk_" + token);
+  if (!raw) return null;
+  const t = JSON.parse(raw);
+  if (t.exp < Date.now()) { pr.deleteProperty("tk_" + token); return null; }
+  const u = lerUsuarios_().find(x => x.login === t.l);
+  if (!u || !u.ativo || u.versao !== t.v) { pr.deleteProperty("tk_" + token); return null; }
+  return u;
+}
+function limparSessoes_() {
+  const pr = PropertiesService.getScriptProperties(), todas = pr.getProperties(), t = Date.now();
+  Object.keys(todas).forEach(k => { if (k.indexOf("tk_") === 0) { try { if (JSON.parse(todas[k]).exp < t) pr.deleteProperty(k); } catch (e) { pr.deleteProperty(k); } } });
+}
+
+/* ---------- senha do painel ---------- */
+function definirSenha_(nova) {
+  const pr = PropertiesService.getScriptProperties();
+  pr.setProperty("SENHA_SUPERVISOR", String(nova));
+  pr.setProperty("SENHA_DATA", agora_());
+}
+function estadoSenha_() {
+  const pr = PropertiesService.getScriptProperties();
+  let d = pr.getProperty("SENHA_DATA");
+  if (!d) { d = agora_(); pr.setProperty("SENHA_DATA", d); }
+  const vence = new Date(new Date(d).getTime() + DIAS_VALIDADE_SENHA * 864e5);
+  const dias = Math.ceil((vence.getTime() - Date.now()) / 864e5);
+  return { trocadaEm: d, venceEm: vence.toISOString(), diasRestantes: dias, vencida: dias <= 0, validadeDias: DIAS_VALIDADE_SENHA, avisoDias: DIAS_AVISO_SENHA };
+}
+function mascara_(e) {
+  const p = String(e).split("@"), u = p[0], d = p[1];
+  return (u.length <= 2 ? u[0] + "*" : u.slice(0, 2) + "*".repeat(Math.max(2, u.length - 2))) + "@" + d;
+}
+function recuperar_(b) {
+  const cache = CacheService.getScriptCache();
+  const para = prop_("EMAIL_RECUP") || EMAIL_DONO;
+  if (b.acao === "recuperarPedir") {
+    if (cache.get("recup_ultimo")) return { ok: true, para: mascara_(para), jaEnviado: true };
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    cache.put("recup", JSON.stringify({ codigo: codigo, tentativas: 0 }), 900);
+    cache.put("recup_ultimo", "1", 120);
+    MailApp.sendEmail({ to: para, name: "Controle de Ferramentas ECTAS",
+      subject: "Código para criar nova senha do Painel de Ferramentas: " + codigo,
+      htmlBody: '<div style="font-family:Arial,sans-serif;color:#1D1D1B"><p>Alguém pediu para criar uma nova senha do <b>Painel do Supervisor</b> do Controle de Ferramentas ECTAS.</p>' +
+        '<p style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#002B49">' + codigo + '</p>' +
+        '<p>O código vale por <b>15 minutos</b>.</p><p style="font-size:12px;color:#606060">Se não foi você, ignore este e-mail: a senha atual continua valendo.</p></div>' });
+    return { ok: true, para: mascara_(para) };
+  }
+  const r = JSON.parse(cache.get("recup") || "null");
+  if (!r) return { ok: false, erro: "O código expirou. Peça um novo." };
+  r.tentativas++;
+  if (String(b.codigo || "").trim() !== r.codigo) {
+    if (r.tentativas >= 5) { cache.remove("recup"); return { ok: false, erro: "Código incorreto 5 vezes. Peça um novo código." }; }
+    cache.put("recup", JSON.stringify(r), 900);
+    return { ok: false, erro: "Código incorreto. Restam " + (5 - r.tentativas) + " tentativas." };
+  }
+  const nova = String(b.nova || "");
+  if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+  if (nova === prop_("SENHA_SUPERVISOR")) return { ok: false, erro: "A nova senha precisa ser diferente da anterior." };
+  definirSenha_(nova); cache.remove("recup");
+  return { ok: true };
+}
+
+/* ---------- painel do supervisor ---------- */
+function acaoSupervisor_(b) {
+  const senhaAtual = prop_("SENHA_SUPERVISOR");
+  if (!senhaAtual) return { ok: false, erro: "sem senha" };
+  if (b.senha !== senhaAtual) return { ok: false, erro: "senha incorreta" };
+  const est = estadoSenha_();
+  if (b.acao !== "senhaTrocar" && est.vencida) return { ok: false, erro: "senha vencida", senhaInfo: est };
+  if (b.acao === "listar") return listar_(est);
+  if (b.acao === "arquivo") {
+    try { const f = DriveApp.getFileById(String(b.id)); return { ok: true, b64: Utilities.base64Encode(f.getBlob().getBytes()), tipo: f.getMimeType() }; }
+    catch (err) { return { ok: false, erro: "arquivo não encontrado" }; }
+  }
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    switch (b.acao) {
+      case "revisarConf": return revisarConf_(b);
+      case "atualizarOc": return atualizarOc_(b);
+      case "kitSalvar": return kitSalvar_(b.kit || {});
+      case "ferramentaSalvar": return ferramentaSalvar_(b.ferramenta || {});
+      case "ferramentaExcluir": return ferramentaExcluir_(String(b.id || ""));
+      case "pecasCriar": return pecasCriar_(b);
+      case "pecaSalvar": return pecaSalvar_(b.peca || {});
+      case "usuarioSalvar": return salvarUsu_(b.usuario || {});
+      case "configSalvar": return salvarConfig_(b.config || {});
+      case "emailTeste": return emailDiario(true);
+      case "backupAgora": garantirGatilhoBackup_(); return backupSemanal();
+      case "recupEmailSalvar": {
+        const e = String(b.email || "").trim();
+        if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return { ok: false, erro: "E-mail inválido." };
+        PropertiesService.getScriptProperties().setProperty("EMAIL_RECUP", e); return { ok: true };
+      }
+      case "senhaTrocar": {
+        const nova = String(b.nova || "");
+        if (nova.length < 6) return { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres." };
+        if (nova === senhaAtual) return { ok: false, erro: "A nova senha precisa ser diferente da atual." };
+        definirSenha_(nova); return { ok: true, senhaInfo: estadoSenha_() };
+      }
+    }
+    return { ok: false, erro: "ação desconhecida" };
+  } finally { lock.releaseLock(); }
+}
+
+function listar_(est) {
+  try { garantirGatilhoBackup_(); } catch (e) { }
+  return { ok: true, senhaInfo: est, prazo: PRAZO_CONFERENCIA, planilha: planilha_().getUrl(),
+    ferramentas: ferramentas_(), kits: kits_(), pecas: pecas_(), tecnicos: listarUsu_(),
+    conferencias: ler_("conf").map(conf_), ocorrencias: ler_("oc").map(oc_), config: config_() };
+}
+
+function revisarConf_(b) {
+  const c = ler_("conf").find(x => String(x.uid) === String(b.uid));
+  if (!c) return { ok: false, erro: "Conferência não encontrada." };
+  if (["aprovada", "devolvida", "pendente"].indexOf(b.status) < 0) return { ok: false, erro: "Situação inválida." };
+  c.status = b.status; c.comentario = limpa_(b.comentario, 1000); c.revisado_em = agora_();
+  gravar_("conf", c, c._linha);
+  return { ok: true };
+}
+function atualizarOc_(b) {
+  const o = ler_("oc").find(x => String(x.uid) === String(b.uid));
+  if (!o) return { ok: false, erro: "Ocorrência não encontrada." };
+  if (["aberta", "andamento", "resolvida"].indexOf(b.status) < 0) return { ok: false, erro: "Situação inválida." };
+  o.status = b.status; o.comentario = limpa_(b.comentario, 1000); o.atualizado_em = agora_();
+  gravar_("oc", o, o._linha);
+  return { ok: true };
+}
+function kitSalvar_(k) {
+  const nome = limpa_(k.nome, 60).trim();
+  if (!nome) return { ok: false, erro: "Informe o nome do kit." };
+  const todos = ler_("kits");
+  let atual = k.id ? todos.find(x => String(x.id) === String(k.id)) : null;
+  const id = atual ? String(atual.id) : "k" + Date.now().toString(36);
+  const tec = (Array.isArray(k.tecnicos) ? k.tecnicos : String(k.tecnicos || "").split(/[,;\s]+/)).map(x => String(x).trim().toLowerCase()).filter(Boolean).join(", ");
+  gravar_("kits", { id: id, nome: nome, responsavel: limpa_(k.responsavel, 80), local: limpa_(k.local, 120), tecnicos: tec,
+    ordem: Number(k.ordem) || (atual ? atual.ordem : todos.length + 1), ativo: k.ativo === false ? "Não" : "Sim" }, atual ? atual._linha : 0);
+  return { ok: true, id: id };
+}
+function ferramentaSalvar_(f) {
+  const desc = limpa_(f.desc, 160).trim();
+  if (!desc) return { ok: false, erro: "Informe a descrição." };
+  const grupo = ["permanente", "almox", "individual"].indexOf(f.grupo) >= 0 ? f.grupo : "permanente";
+  const todos = ler_("ferramentas");
+  const atual = f.id ? todos.find(x => String(x.id) === String(f.id)) : null;
+  const id = atual ? String(atual.id) : "f" + Date.now().toString(36);
+  gravar_("ferramentas", { id: id, item: f.item === "" || f.item == null ? "" : Number(f.item), descricao: desc, qtd: Math.max(0, Number(f.qtd) || 0),
+    grupo: grupo, ativa: f.ativa === false ? "Não" : "Sim" }, atual ? atual._linha : 0);
+  return { ok: true, id: id };
+}
+function ferramentaExcluir_(id) {
+  const f = ler_("ferramentas").find(x => String(x.id) === id);
+  if (!f) return { ok: false, erro: "Ferramenta não encontrada." };
+  if (pecas_().some(p => p.ferramenta === id && p.situacao !== "baixada"))
+    return { ok: false, erro: "Esta ferramenta tem peças com código. Dê baixa nas peças antes, ou marque a ferramenta como inativa." };
+  aba_("ferramentas").deleteRow(f._linha);
+  return { ok: true };
+}
+function proximosCodigos_(n) {
+  let max = 0;
+  pecas_().forEach(p => { const m = /^FER-(\d+)$/.exec(p.codigo); if (m) max = Math.max(max, Number(m[1])); });
+  const out = []; for (let i = 1; i <= n; i++) out.push("FER-" + String(max + i).padStart(4, "0"));
+  return out;
+}
+function pecasCriar_(b) {
+  const n = Math.max(1, Math.min(100, Number(b.qtd) || 1));
+  if (!ferramentas_().some(f => f.id === String(b.ferramenta))) return { ok: false, erro: "Ferramenta não encontrada." };
+  if (!kits_().some(k => k.id === String(b.kit))) return { ok: false, erro: "Kit não encontrado." };
+  const codigos = proximosCodigos_(n), quando = agora_();
+  const sh = aba_("pecas"), ini = sh.getLastRow() + 1;
+  const linhas = codigos.map(c => [c, String(b.ferramenta), String(b.kit), "ativa", quando, ""]);
+  bloco_(sh, ini, linhas.length, 6).setNumberFormat("@").setValues(linhas);
+  return { ok: true, codigos: codigos };
+}
+function pecaSalvar_(p) {
+  const atual = ler_("pecas").find(x => String(x.codigo) === String(p.codigo));
+  if (!atual) return { ok: false, erro: "Peça não encontrada." };
+  if (p.kit !== undefined) { if (!kits_().some(k => k.id === String(p.kit))) return { ok: false, erro: "Kit não encontrado." }; atual.kit = String(p.kit); }
+  if (p.situacao !== undefined) { if (["ativa", "manutencao", "baixada"].indexOf(p.situacao) < 0) return { ok: false, erro: "Situação inválida." }; atual.situacao = p.situacao; }
+  if (p.obs !== undefined) atual.obs = limpa_(p.obs, 300);
+  gravar_("pecas", atual, atual._linha);
+  return { ok: true };
+}
+
+/* ---------- configurações, aviso diário e cópia de segurança ---------- */
+function config_() {
+  const pr = PropertiesService.getScriptProperties();
+  return { emails: pr.getProperty("EMAILS_AVISO") || "", hora: parseInt(pr.getProperty("HORA_AVISO") || "7", 10),
+    ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "emailDiario"),
+    recupEmail: pr.getProperty("EMAIL_RECUP") || "", recupPadrao: EMAIL_DONO, backup: infoBackup_() };
+}
+function salvarConfig_(c) {
+  const emails = String(c.emails || "").split(/[,;\s]+/).map(e => e.trim()).filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  const hora = Math.min(23, Math.max(0, parseInt(c.hora, 10) || 7));
+  const pr = PropertiesService.getScriptProperties();
+  pr.setProperty("EMAILS_AVISO", emails.join(", "));
+  pr.setProperty("HORA_AVISO", String(hora));
+  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === "emailDiario") ScriptApp.deleteTrigger(t); });
+  if (emails.length) ScriptApp.newTrigger("emailDiario").timeBased().atHour(hora).nearMinute(0).everyDays(1).inTimezone(TZ).create();
+  return { ok: true, config: config_() };
+}
+function backupSemanal() {
+  const ss = planilha_(), pasta = pasta_(PASTA_BACKUP);
+  DriveApp.getFileById(ss.getId()).makeCopy("Backup " + NOME_PLANILHA + " " + Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd HH'h'mm"), pasta);
+  const arqs = []; const it = pasta.getFiles();
+  while (it.hasNext()) { const f = it.next(); if (f.getName().indexOf("Backup ") === 0) arqs.push(f); }
+  arqs.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  arqs.slice(BACKUPS_MANTER).forEach(f => f.setTrashed(true));
+  PropertiesService.getScriptProperties().setProperty("ULTIMO_BACKUP", agora_());
+  return { ok: true, backup: infoBackup_() };
+}
+function garantirGatilhoBackup_() {
+  if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal")) return;
+  ScriptApp.newTrigger("backupSemanal").timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).inTimezone(TZ).create();
+}
+function infoBackup_() {
+  const pr = PropertiesService.getScriptProperties();
+  let url = pr.getProperty("PASTA_BACKUP_URL");
+  if (!url) { try { url = pasta_(PASTA_BACKUP).getUrl(); pr.setProperty("PASTA_BACKUP_URL", url); } catch (e) { url = ""; } }
+  return { ultimo: pr.getProperty("ULTIMO_BACKUP") || "", pasta: url, ativo: ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === "backupSemanal") };
+}
+
+// situação de cada kit pela última conferência
+function situacaoKits_() {
+  const confs = ler_("conf").map(conf_), ferr = ferramentas_().filter(f => f.ativa && f.grupo === "permanente");
+  return kits_().filter(k => k.ativo).map(k => {
+    const c = confs.filter(x => x.kit === k.id).sort((a, b) => b.criado_em.localeCompare(a.criado_em))[0];
+    if (!c) return { kit: k, c: null, atraso: null, faltas: [] };
+    const dias = Math.floor((Date.now() - new Date(c.criado_em).getTime()) / 864e5);
+    const faltas = ferr.filter(f => c.itens[f.id] && (c.itens[f.id].q < f.qtd || c.itens[f.id].s !== "ok")).map(f => f.desc + " (" + c.itens[f.id].q + "/" + f.qtd + ")");
+    return { kit: k, c: c, dias: dias, atraso: dias > PRAZO_CONFERENCIA, faltas: faltas };
+  });
+}
+
+function emailDiario(teste) {
+  const emails = prop_("EMAILS_AVISO");
+  if (!emails) return { ok: false, erro: "Cadastre pelo menos um e-mail para o aviso." };
+  const dow = Number(Utilities.formatDate(new Date(), TZ, "u"));
+  if (dow === 7 && teste !== true) return { ok: true, pulado: "domingo" };
+  const esc = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const sit = situacaoKits_();
+  const pendentes = ler_("conf").map(conf_).filter(c => c.status === "pendente");
+  const abertas = ler_("oc").map(oc_).filter(o => o.status !== "resolvida");
+  const atrasados = sit.filter(s => !s.c || s.atraso);
+  let html = '<div style="font-family:Arial,sans-serif;color:#1D1D1B;max-width:660px">' +
+    '<div style="background:#002B49;color:#fff;padding:14px 18px;font-size:18px;font-weight:bold">Controle de Ferramentas ECTAS</div>' +
+    '<div style="height:4px;background:linear-gradient(90deg,#66D3CD 33%,#0073A8 33% 66%,#002B49 66%)"></div>' +
+    '<p style="font-size:15px">Situação em <b>' + Utilities.formatDate(new Date(), TZ, "dd/MM/yyyy") + '</b>' + (teste === true ? " (e-mail de teste)" : "") + '</p>';
+  if (atrasados.length) html += '<h3 style="color:#B42318;margin:16px 0 6px">⚠ ' + atrasados.length + ' kit(s) sem conferência no prazo de ' + PRAZO_CONFERENCIA + ' dias</h3><ul>' +
+    atrasados.map(s => '<li>' + esc(s.kit.nome) + (s.kit.responsavel ? " · " + esc(s.kit.responsavel) : "") + ": " + (s.c ? "última há " + s.dias + " dias" : "nunca conferido") + '</li>').join("") + '</ul>';
+  const comFalta = sit.filter(s => s.faltas.length);
+  if (comFalta.length) html += '<h3 style="color:#B54708;margin:16px 0 6px">Pendências na última conferência</h3>' +
+    comFalta.map(s => '<p style="margin:6px 0"><b>' + esc(s.kit.nome) + '</b> (' + esc(s.c.tecnico) + ')</p><ul style="margin:0">' + s.faltas.map(f => '<li>' + esc(f) + '</li>').join("") + '</ul>').join("");
+  html += '<h3 style="color:#0073A8;margin:16px 0 6px">Para o supervisor</h3><ul>' +
+    '<li><b>' + pendentes.length + '</b> conferência(s) aguardando aprovação</li><li><b>' + abertas.length + '</b> ocorrência(s) ou pedido(s) em aberto</li></ul>';
+  if (!atrasados.length && !comFalta.length) html += '<p style="color:#1F7A4D;font-weight:bold">✓ Todos os kits estão conferidos no prazo e completos.</p>';
+  const est = estadoSenha_();
+  if (est.diasRestantes <= DIAS_AVISO_SENHA) html += '<p style="background:#FEF3E2;border:1px solid #B54708;padding:10px 12px;color:#7A2E0E">🔒 ' +
+    (est.vencida ? 'A senha do Painel de Ferramentas <b>venceu</b>. Entre no painel e crie uma nova.' : 'A senha do Painel de Ferramentas vence em <b>' + est.diasRestantes + ' dia(s)</b>. Troque pelo painel, em Configurações.') + '</p>';
+  html += '<p style="margin-top:18px"><a href="' + PAINEL_URL + '" style="color:#0073A8">Abrir o Painel do Supervisor</a></p>' +
+    '<p style="font-size:12px;color:#606060">Aviso automático de segunda a sábado. Para mudar os destinatários ou o horário, use o painel.</p></div>';
+  const assunto = (teste === true ? "[Teste] " : "") + "Ferramentas: " + (atrasados.length ? atrasados.length + " kit(s) com conferência atrasada" : comFalta.length ? comFalta.length + " kit(s) com pendência" : "kits em dia") +
+    (pendentes.length ? " · " + pendentes.length + " a aprovar" : "");
+  MailApp.sendEmail({ to: emails, subject: assunto, htmlBody: html, name: "Controle de Ferramentas ECTAS" });
+  return { ok: true, enviado: emails };
+}
+
+/* Rode uma vez pelo editor: cria a planilha, carrega a lista de ferramentas, os 3 kits e os 186 códigos FER, e autoriza o acesso. */
+function configurar() {
+  Object.keys(T).forEach(aba_);
+  if (!ler_("ferramentas").length) {
+    aba_("ferramentas").getRange(2, 1, CARGA_FERRAMENTAS.length, 6).setNumberFormat("@")
+      .setValues(CARGA_FERRAMENTAS.map(f => [f[0], f[1], f[2], f[3], f[4], "Sim"]));
+  }
+  if (!ler_("kits").length) {
+    aba_("kits").getRange(2, 1, CARGA_KITS.length, 7).setNumberFormat("@")
+      .setValues(CARGA_KITS.map((k, i) => [k[0], k[1], "", "", "", i + 1, "Sim"]));
+  }
+  if (!ler_("pecas").length) {
+    const linhas = []; let n = 0; const quando = agora_();
+    CARGA_KITS.forEach(k => CARGA_FERRAMENTAS.filter(f => f[4] === "permanente").forEach(f => {
+      for (let i = 0; i < f[3]; i++) { n++; linhas.push(["FER-" + String(n).padStart(4, "0"), f[0], k[0], "ativa", quando, ""]); }
+    }));
+    bloco_(aba_("pecas"), 2, linhas.length, 6).setNumberFormat("@").setValues(linhas);
+  }
+  pasta_(PASTA_ARQ);
+  garantirGatilhoBackup_();
+  Logger.log("Planilha: " + planilha_().getUrl());
+  Logger.log("Peças cadastradas: " + ler_("pecas").length);
+  Logger.log("Cota de e-mails restante hoje: " + MailApp.getRemainingDailyQuota());
+}
